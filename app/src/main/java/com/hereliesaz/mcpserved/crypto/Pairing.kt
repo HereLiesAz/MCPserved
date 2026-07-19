@@ -14,19 +14,20 @@ import java.security.SecureRandom
 import java.util.UUID
 
 /**
- * Establishes and stores the long-term keys shared with the MCP server.
+ * Establishes and stores the long-term keys shared with the desktop MCP server.
  *
  * Pairing is a one-time out-of-band exchange: the device generates an X25519
- * keypair and renders its public half, its device id, and the relay URL as a QR
- * code. The MCP server scans it, generates its own keypair, and returns its
- * public half through the relay. Both sides then derive the same shared secret
- * and never transmit it.
+ * keypair and renders its public half and its device id as a QR code. The MCP
+ * server scans it, generates its own keypair, and shows its public half back for
+ * the device to scan. Both sides then derive the same shared secret and never
+ * transmit it.
  *
- * The relay is deliberately outside this. It routes on [deviceId] and moves
- * sealed bytes; it has no key material and cannot acquire any by observing the
- * exchange. A relay that cannot read is a relay that needs no further thought —
- * which matters more than it sounds, since it is infrastructure you will forget
- * you are running.
+ * There is no relay and no network peer. The two endpoints meet on the local
+ * machine: the desktop server reaches the device's loopback control port through
+ * an `adb forward` tunnel (see [com.hereliesaz.mcpserved.transport.LocalServer]).
+ * The pairing secret still matters even so — any app on the device can dial a
+ * loopback port, and the shared key is what stops one that is not the paired
+ * server from driving the service.
  *
  * BouncyCastle rather than the platform providers: `XDH` via `java.security`
  * only arrived in API 33, and `ChaCha20-Poly1305` via `javax.crypto` in API 28.
@@ -48,43 +49,41 @@ class Pairing(ctx: Context) {
         )
     }
 
-    /** Everything the MCP server needs to reach and address this device. */
+    /** Everything the MCP server needs to address and authenticate this device. */
     data class QrPayload(
         val deviceId: String,
-        val relayUrl: String,
         val devicePublicKey: ByteArray
     ) {
         /**
          * Compact single-line encoding for the QR bitmap.
          *
-         * Format: `mcpserved:1:<deviceId>:<relayUrl>:<b64 pubkey>`. Versioned in
-         * the second field so that a future format change fails to parse loudly
-         * rather than being misread as the current one.
+         * Format: `mcpserved:2:<deviceId>:<b64url pubkey>`. Versioned in the
+         * second field so that a future format change fails to parse loudly
+         * rather than being misread as the current one. Version 2 dropped the
+         * relay URL that version 1 carried: there is no relay anymore.
          */
         fun encode(): String = listOf(
             "mcpserved",
-            "1",
+            "2",
             deviceId,
-            Base64.encodeToString(relayUrl.toByteArray(), Base64.NO_WRAP or Base64.URL_SAFE),
             Base64.encodeToString(devicePublicKey, Base64.NO_WRAP or Base64.URL_SAFE)
         ).joinToString(":")
 
         override fun equals(other: Any?): Boolean =
-            other is QrPayload && deviceId == other.deviceId && relayUrl == other.relayUrl &&
+            other is QrPayload && deviceId == other.deviceId &&
                 devicePublicKey.contentEquals(other.devicePublicKey)
 
         override fun hashCode(): Int =
-            (deviceId.hashCode() * 31 + relayUrl.hashCode()) * 31 + devicePublicKey.contentHashCode()
+            deviceId.hashCode() * 31 + devicePublicKey.contentHashCode()
 
         companion object {
             fun decode(s: String): QrPayload? {
                 val parts = s.split(":")
-                if (parts.size != 5 || parts[0] != "mcpserved" || parts[1] != "1") return null
+                if (parts.size != 4 || parts[0] != "mcpserved" || parts[1] != "2") return null
                 return runCatching {
                     QrPayload(
                         deviceId = parts[2],
-                        relayUrl = String(Base64.decode(parts[3], Base64.NO_WRAP or Base64.URL_SAFE)),
-                        devicePublicKey = Base64.decode(parts[4], Base64.NO_WRAP or Base64.URL_SAFE)
+                        devicePublicKey = Base64.decode(parts[3], Base64.NO_WRAP or Base64.URL_SAFE)
                     )
                 }.getOrNull()
             }
@@ -97,21 +96,17 @@ class Pairing(ctx: Context) {
     val deviceId: String
         get() = prefs.getString(KEY_DEVICE_ID, null) ?: rotateIdentity().deviceId
 
-    val relayUrl: String
-        get() = prefs.getString(KEY_RELAY_URL, DEFAULT_RELAY) ?: DEFAULT_RELAY
-
     /**
      * Generates a fresh identity, discarding any existing pairing.
      *
      * Called on first run and on explicit re-pair. Rotating the identity is the
      * only complete revocation available: the grant table can be emptied and the
      * session ended, but a peer holding a valid shared secret can still reach the
-     * relay and be told no. Rotation means it cannot even do that.
+     * loopback port and be told no. Rotation means it cannot even do that.
      *
-     * @param relayUrl relay endpoint to advertise, defaulting to the current one
      * @return the payload to render as a QR code
      */
-    fun rotateIdentity(relayUrl: String = this.relayUrl): QrPayload {
+    fun rotateIdentity(): QrPayload {
         val priv = X25519PrivateKeyParameters(SecureRandom())
         val pub = priv.generatePublicKey()
         val id = UUID.randomUUID().toString()
@@ -120,17 +115,16 @@ class Pairing(ctx: Context) {
             .putString(KEY_DEVICE_ID, id)
             .putString(KEY_PRIV, Base64.encodeToString(priv.encoded, Base64.NO_WRAP))
             .putString(KEY_PUB, Base64.encodeToString(pub.encoded, Base64.NO_WRAP))
-            .putString(KEY_RELAY_URL, relayUrl)
             .remove(KEY_PEER_PUB)
             .apply()
 
-        return QrPayload(id, relayUrl, pub.encoded)
+        return QrPayload(id, pub.encoded)
     }
 
     /** The payload for the current identity, generating one if none exists. */
     fun currentPayload(): QrPayload {
         val pub = prefs.getString(KEY_PUB, null) ?: return rotateIdentity()
-        return QrPayload(deviceId, relayUrl, Base64.decode(pub, Base64.NO_WRAP))
+        return QrPayload(deviceId, Base64.decode(pub, Base64.NO_WRAP))
     }
 
     /**
@@ -155,7 +149,8 @@ class Pairing(ctx: Context) {
     }
 
     /**
-     * Derives the directional frame keys from the X25519 shared secret.
+     * Derives the directional frame keys from the X25519 shared secret and a
+     * per-connection [salt].
      *
      * Two keys, not one. With a single key both sides would draw nonces from the
      * same space, and a device frame and a server frame carrying the same
@@ -163,9 +158,17 @@ class Pairing(ctx: Context) {
      * keystream and forges the authenticator. Separate keys let each direction
      * use its own counter with no coordination at all.
      *
+     * The salt is fresh random bytes the server picks per connection and sends in
+     * its opening hello. Folding it into the KDF means every connection derives
+     * distinct keys, so each connection's sequence counter may safely start at
+     * zero: a counter reset under a *new* key cannot replay a nonce. Without this,
+     * a desktop server the MCP host relaunches — which resets its counter — would
+     * have every frame rejected as a replay by a device still holding the old one.
+     *
+     * @param salt per-connection random bytes shared by both endpoints
      * @return device-to-server and server-to-device keys, or null when unpaired
      */
-    fun deriveKeys(): FrameKeys? {
+    fun deriveKeys(salt: ByteArray): FrameKeys? {
         val privB64 = prefs.getString(KEY_PRIV, null) ?: return null
         val peerB64 = prefs.getString(KEY_PEER_PUB, null) ?: return null
 
@@ -179,15 +182,15 @@ class Pairing(ctx: Context) {
         }
 
         return FrameKeys(
-            deviceToServer = hkdf(shared, "mcpserved d2s v1"),
-            serverToDevice = hkdf(shared, "mcpserved s2d v1")
+            deviceToServer = hkdf(shared, salt, "mcpserved d2s v1"),
+            serverToDevice = hkdf(shared, salt, "mcpserved s2d v1")
         )
     }
 
-    private fun hkdf(secret: ByteArray, info: String): ByteArray {
+    private fun hkdf(secret: ByteArray, salt: ByteArray, info: String): ByteArray {
         val out = ByteArray(32)
         HKDFBytesGenerator(SHA256Digest()).apply {
-            init(HKDFParameters(secret, null, info.toByteArray()))
+            init(HKDFParameters(secret, salt, info.toByteArray()))
             generateBytes(out, 0, out.size)
         }
         return out
@@ -209,7 +212,5 @@ class Pairing(ctx: Context) {
         const val KEY_PRIV = "priv"
         const val KEY_PUB = "pub"
         const val KEY_PEER_PUB = "peer_pub"
-        const val KEY_RELAY_URL = "relay_url"
-        const val DEFAULT_RELAY = "wss://relay.hereliesaz.com/device"
     }
 }

@@ -52,7 +52,7 @@ class FrameCodec(
      *
      * @param plaintext serialized request or response
      * @param aad additional authenticated data — the device id, so that a frame
-     *   cannot be replayed against a different device even by a relay that
+     *   cannot be replayed against a different device even by a peer that
      *   forwards it there
      */
     fun seal(plaintext: ByteArray, aad: ByteArray): Sealed {

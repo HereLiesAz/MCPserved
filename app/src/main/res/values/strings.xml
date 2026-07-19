@@ -3,7 +3,7 @@
     <string name="app_name">MCPserved</string>
 
     <string name="a11y_label">MCPserved</string>
-    <string name="a11y_description">Lets an authorized remote client read the screen and dispatch touches, restricted to applications you have explicitly granted. Nothing is reachable until you grant it, and every action is logged while a session is open.</string>
+    <string name="a11y_description">Lets a desktop client you have paired read the screen and dispatch touches on your behalf, restricted to the applications you explicitly grant. The client connects only over a local loopback port you bridge yourself with adb; nothing is reachable from the network, nothing is reachable until you grant it, and every action is logged in an ongoing notification while a session is open.</string>
     <string name="notif_listener_label">MCPserved notifications</string>
 
     <string name="channel_session">Session</string>

@@ -41,8 +41,8 @@ fun StatusScreen(vm: MainViewModel) {
         Text("MCPserved", style = MaterialTheme.typography.displaySmall)
         Spacer(Modifier.height(4.dp))
         Text(
-            "A remote holds no power here until three things are true and a grant " +
-                "exists. This screen is those three things.",
+            "The desktop client holds no power here until three things are true " +
+                "and a grant exists. This screen is those three things.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -73,8 +73,8 @@ fun StatusScreen(vm: MainViewModel) {
         ReadyRow(
             label = "Service",
             ready = vm.serviceRunning,
-            detail = if (vm.serviceRunning) "Armed. Listening for a session request."
-            else "Stopped. Cannot be woken.",
+            detail = if (vm.serviceRunning) "Armed. Listening on the loopback port."
+            else "Stopped. Not listening.",
             action = if (vm.serviceRunning) "Disarm" else "Arm",
             onAction = { if (vm.serviceRunning) vm.stopService() else vm.startService() }
         )

@@ -4,13 +4,15 @@ import { generateKeyPair } from "./crypto.js";
 import { saveConfig, CONFIG_PATH } from "./config.js";
 
 /**
- * One-time pairing between this machine and a device.
+ * One-time pairing between this machine and a device, for the app backend.
  *
- * Both public keys travel out of band, by QR code, in both directions. Passing
- * the server's key through the relay would be simpler and would also make the
- * relay able to substitute its own key during the one exchange that establishes
- * trust — which is the definition of a man in the middle. A camera and a
- * terminal are slower and are not.
+ * Both public keys travel out of band, by QR code, in both directions, so no
+ * third party ever sits in the exchange that establishes trust. The shared
+ * secret then authenticates this server when it later connects to the device's
+ * loopback control port over `adb forward`.
+ *
+ * Pairing is only needed for the richer app backend. The quick-connect adb
+ * backend needs none of this — it just needs `adb` to reach the device.
  *
  * The exchange establishes only that the two endpoints share a secret. It says
  * nothing about authority: what the device will actually permit is decided
@@ -19,20 +21,19 @@ import { saveConfig, CONFIG_PATH } from "./config.js";
 export async function pair(): Promise<void> {
   const rl = createInterface({ input: process.stdin, output: process.stdout });
 
-  console.log("\nOpen MCPserved on the device, tap Pair, and scan nothing yet.");
-  console.log("Paste the string under the device's QR code here.\n");
+  console.log("\nOpen MCPserved on the device, go to Pair, and read the string under its QR code.");
+  console.log("Paste it here.\n");
 
   const payload = (await rl.question("device payload: ")).trim();
   const parts = payload.split(":");
 
-  if (parts.length !== 5 || parts[0] !== "mcpserved" || parts[1] !== "1") {
+  if (parts.length !== 4 || parts[0] !== "mcpserved" || parts[1] !== "2") {
     rl.close();
-    throw new Error("that is not an MCPserved v1 pairing payload");
+    throw new Error("that is not an MCPserved v2 pairing payload");
   }
 
   const deviceId = parts[2];
-  const relayUrl = Buffer.from(parts[3], "base64url").toString("utf8");
-  const devicePublicKey = Buffer.from(parts[4], "base64url");
+  const devicePublicKey = Buffer.from(parts[3], "base64url");
 
   if (devicePublicKey.length !== 32) {
     rl.close();
@@ -43,7 +44,6 @@ export async function pair(): Promise<void> {
 
   saveConfig({
     deviceId,
-    relayUrl,
     serverPrivateKey: privateKey.toString("base64"),
     devicePublicKey: devicePublicKey.toString("base64"),
   });
@@ -52,17 +52,16 @@ export async function pair(): Promise<void> {
   console.log("Now scan this with the device to complete the exchange:\n");
 
   // Same envelope shape the device emits, so one scanner handles both directions.
-  const reply = [
-    "mcpserved",
-    "1",
-    deviceId,
-    Buffer.from(relayUrl, "utf8").toString("base64url"),
-    publicKey.toString("base64url"),
-  ].join(":");
+  const reply = ["mcpserved", "2", deviceId, publicKey.toString("base64url")].join(":");
 
   qrcode.generate(reply, { small: true });
   console.log(`\n${reply}\n`);
-  console.log("Device shows 'Paired' when it has the key.\n");
+  console.log("The device shows 'Paired' once it has the key.");
+  console.log(
+    "Then arm the service on the device and make sure it is reachable over adb\n" +
+      "(`adb devices`, or `adb connect <ip>:5555` for Wi-Fi). The server sets up the\n" +
+      "`adb forward` tunnel itself when it connects.\n",
+  );
 
   rl.close();
 }

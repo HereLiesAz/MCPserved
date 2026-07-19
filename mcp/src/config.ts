@@ -1,31 +1,44 @@
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { deriveKeys, type FrameKeys } from "./crypto.js";
 
 /**
- * Persisted pairing state for the MCP server.
+ * Persisted pairing state for the desktop MCP server.
  *
  * Stored under the user's home directory rather than alongside the code, so that
  * a checkout of the repository never contains key material and a stray `git add`
  * cannot publish it.
+ *
+ * Only the raw keys are kept. The directional frame keys are derived per
+ * connection from a fresh salt (see crypto.ts), so there is nothing durable to
+ * store for them.
  */
 export interface Config {
   deviceId: string;
-  relayUrl: string;
-  keys: FrameKeys;
+  /** Loopback port on the desktop that `adb forward` bridges to the device. */
+  port: number;
+  serverPrivateKey: Buffer;
+  devicePublicKey: Buffer;
 }
 
 interface StoredConfig {
   deviceId: string;
-  relayUrl: string;
   serverPrivateKey: string;
   devicePublicKey: string;
 }
 
 const CONFIG_PATH = join(homedir(), ".config", "mcpserved", "pairing.json");
 
-/** Reads and expands the stored pairing, deriving frame keys on load. */
+/** Default loopback port; must match LocalServer.DEFAULT_PORT on the device. */
+const DEFAULT_PORT = 8790;
+
+function resolvePort(): number {
+  const raw = process.env.MCPSERVED_PORT;
+  const n = raw ? Number(raw) : DEFAULT_PORT;
+  return Number.isInteger(n) && n > 0 && n < 65536 ? n : DEFAULT_PORT;
+}
+
+/** Reads the stored pairing, or throws with a pointer to `pair` if absent. */
 export function loadConfig(): Config {
   let stored: StoredConfig;
   try {
@@ -38,12 +51,19 @@ export function loadConfig(): Config {
 
   return {
     deviceId: stored.deviceId,
-    relayUrl: stored.relayUrl,
-    keys: deriveKeys(
-      Buffer.from(stored.serverPrivateKey, "base64"),
-      Buffer.from(stored.devicePublicKey, "base64"),
-    ),
+    port: resolvePort(),
+    serverPrivateKey: Buffer.from(stored.serverPrivateKey, "base64"),
+    devicePublicKey: Buffer.from(stored.devicePublicKey, "base64"),
   };
+}
+
+/** Like {@link loadConfig} but returns null instead of throwing when unpaired. */
+export function tryLoadConfig(): Config | null {
+  try {
+    return loadConfig();
+  } catch {
+    return null;
+  }
 }
 
 /** Writes the pairing, creating the directory and restricting permissions. */
