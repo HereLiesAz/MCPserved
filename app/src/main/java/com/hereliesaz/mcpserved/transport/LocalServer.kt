@@ -105,7 +105,10 @@ class LocalServer(
                 withContext(Dispatchers.IO) {
                     ServerSocket().apply {
                         reuseAddress = true
-                        bind(InetSocketAddress(InetAddress.getLoopbackAddress(), port))
+                        // Bind IPv4 loopback explicitly. getLoopbackAddress() can
+                        // resolve to ::1, but adbd dials 127.0.0.1 for a forwarded
+                        // port, so an IPv6-only bind would never receive it.
+                        bind(InetSocketAddress(InetAddress.getByName("127.0.0.1"), port))
                     }
                 }
             }.getOrElse {

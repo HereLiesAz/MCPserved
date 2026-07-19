@@ -40,8 +40,6 @@ android {
         targetCompatibility = JavaVersion.VERSION_21
     }
 
-
-
     buildFeatures {
         compose = true
     }
@@ -51,6 +49,15 @@ android {
             "/META-INF/{AL2.0,LGPL2.1}",
             "META-INF/versions/9/OSGI-INF/MANIFEST.MF"
         )
+    }
+}
+
+// Kotlin must target the same JVM bytecode level as Java (compileOptions above).
+// Without this the Kotlin task defaults higher than the Java task under the
+// upgraded toolchain, and the build fails on an inconsistent-JVM-target check.
+kotlin {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_21)
     }
 }
 

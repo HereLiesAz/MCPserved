@@ -164,7 +164,7 @@ export class AdbLink implements Link {
       return { ok: false, error: `uiautomator dump failed: ${(e as Error).message}` };
     }
 
-    const xmlRes = await adbShell(`cat ${dumpPath}`, { binary: true, timeoutMs: 15_000 });
+    const xmlRes = await adbShell(`cat ${shellQuote(dumpPath)}`, { binary: true, timeoutMs: 15_000 });
     if (xmlRes.code !== 0) {
       return { ok: false, error: "could not read the ui dump" };
     }

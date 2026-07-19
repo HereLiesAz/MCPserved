@@ -45,6 +45,15 @@ async function chooseLink(): Promise<Link> {
   const mode = (process.env.MCPSERVED_MODE ?? "auto").toLowerCase();
   const config = mode === "adb" ? null : tryLoadConfig();
 
+  // A pinned app mode must never silently become adb: adb is device-wide shell
+  // authority, and falling back to it would quietly widen what the operator
+  // asked to restrict.
+  if (mode === "app" && !config) {
+    throw new Error(
+      "MCPSERVED_MODE=app, but no pairing was found. Run `npx mcpserved pair` first.",
+    );
+  }
+
   if (config) {
     const app = new AppLink(config);
     try {
