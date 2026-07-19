@@ -16,3 +16,4 @@ dist/
 
 # Pairing keys live in ~/.config/mcpserved/, never here. Belt and braces.
 pairing.json
+/app/release/app-release.aab
