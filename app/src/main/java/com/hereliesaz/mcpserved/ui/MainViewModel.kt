@@ -12,9 +12,11 @@ import com.hereliesaz.mcpserved.grant.GrantStore
 import com.hereliesaz.mcpserved.service.ControlService
 import com.hereliesaz.mcpserved.service.McpAccessibilityService
 import com.hereliesaz.mcpserved.transport.Scope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * State for the whole application, which is small enough not to want more.
@@ -66,17 +68,22 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         val pm = getApplication<Application>().packageManager
         val granted = store.current().associateBy { it.pkg }
 
-        _apps.value = pm.getInstalledApplications(0)
-            .filter { pm.getLaunchIntentForPackage(it.packageName) != null }
-            .map { info ->
-                AppRow(
-                    pkg = info.packageName,
-                    label = pm.getApplicationLabel(info).toString(),
-                    scopes = granted[info.packageName]?.scopes ?: emptySet(),
-                    isSystem = (info.flags and ApplicationInfo.FLAG_SYSTEM) != 0
-                )
-            }
-            .sortedWith(compareBy({ it.scopes.isEmpty() }, { it.label.lowercase() }))
+        // getInstalledApplications is a blocking binder call that can be slow and,
+        // on devices with many apps, throw TransactionTooLargeException. viewModelScope
+        // runs on Dispatchers.Main, so the whole enumeration is moved to IO.
+        _apps.value = withContext(Dispatchers.IO) {
+            pm.getInstalledApplications(0)
+                .filter { pm.getLaunchIntentForPackage(it.packageName) != null }
+                .map { info ->
+                    AppRow(
+                        pkg = info.packageName,
+                        label = pm.getApplicationLabel(info).toString(),
+                        scopes = granted[info.packageName]?.scopes ?: emptySet(),
+                        isSystem = (info.flags and ApplicationInfo.FLAG_SYSTEM) != 0
+                    )
+                }
+                .sortedWith(compareBy({ it.scopes.isEmpty() }, { it.label.lowercase() }))
+        }
     }
 
     /**

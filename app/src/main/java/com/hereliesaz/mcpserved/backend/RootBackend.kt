@@ -32,7 +32,19 @@ class RootBackend(overrideAvailable: Boolean? = null) : ControlBackend {
 
     override val name = "root"
 
-    private val available: Boolean = overrideAvailable ?: probe()
+    @Volatile
+    private var available: Boolean = overrideAvailable ?: false
+
+    init {
+        // The probe runs a real `su` command: it blocks on process I/O and may
+        // raise the superuser prompt. RootBackend is constructed in
+        // ControlService.onCreate on the main thread, so probing there risks an
+        // ANR. Push it to a background thread; caps report unrooted until it
+        // resolves, which at worst costs the first action a fallback path.
+        if (overrideAvailable == null) {
+            Thread { available = probe() }.start()
+        }
+    }
 
     override val caps: Set<Cap>
         get() = if (!available) emptySet() else setOf(
@@ -161,13 +173,23 @@ class RootBackend(overrideAvailable: Boolean? = null) : ControlBackend {
         suBytes("screencap -p").mapCatching { png ->
             val src = BitmapFactory.decodeByteArray(png, 0, png.size)
                 ?: error("screencap produced undecodable output")
-            val scale = maxPx.toFloat() / maxOf(src.width, src.height)
-            val bmp = if (scale >= 1f) src else Bitmap.createScaledBitmap(
-                src, (src.width * scale).toInt(), (src.height * scale).toInt(), true
-            )
-            val out = ByteArrayOutputStream()
-            bmp.compress(Bitmap.CompressFormat.JPEG, 80, out)
-            CapturedImage("image/jpeg", out.toByteArray(), bmp.width, bmp.height)
+            try {
+                val scale = maxPx.toFloat() / maxOf(src.width, src.height)
+                val bmp = if (scale >= 1f) src else Bitmap.createScaledBitmap(
+                    src, (src.width * scale).toInt(), (src.height * scale).toInt(), true
+                )
+                try {
+                    val out = ByteArrayOutputStream()
+                    bmp.compress(Bitmap.CompressFormat.JPEG, 80, out)
+                    CapturedImage("image/jpeg", out.toByteArray(), bmp.width, bmp.height)
+                } finally {
+                    // Full-screen framebuffers are multi-megabyte. Frequent
+                    // observation without recycling walks straight into OOM.
+                    if (bmp !== src) bmp.recycle()
+                }
+            } finally {
+                src.recycle()
+            }
         }
 
     override suspend fun shell(cmd: String): Result<String> = su(cmd)

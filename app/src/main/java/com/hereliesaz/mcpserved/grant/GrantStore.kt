@@ -10,6 +10,8 @@ import com.hereliesaz.mcpserved.transport.Scope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
 private val Context.grantDataStore: DataStore<Preferences> by preferencesDataStore("grants")

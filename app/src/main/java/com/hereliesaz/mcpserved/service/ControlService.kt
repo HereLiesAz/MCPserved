@@ -232,7 +232,12 @@ class ControlService : Service() {
         acquireWakeLock()
     }
 
+    // acquireWakeLock and releaseScreenHold both touch the shared wakeLock field
+    // and are reached from the main thread and from scope.launch on
+    // Dispatchers.Default. Synchronizing them keeps a race from stranding a held
+    // lock that nothing releases — the screen stays lit and the battery drains.
     @Suppress("DEPRECATION")
+    @Synchronized
     private fun acquireWakeLock() {
         if (wakeLock?.isHeld == true) return
         val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
@@ -248,6 +253,7 @@ class ControlService : Service() {
         }
     }
 
+    @Synchronized
     private fun releaseScreenHold() {
         wakeLock?.takeIf { it.isHeld }?.release()
         wakeLock = null

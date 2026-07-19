@@ -11,7 +11,9 @@ import com.hereliesaz.mcpserved.transport.Cap
 import com.hereliesaz.mcpserved.transport.GlobalKey
 import com.hereliesaz.mcpserved.transport.ScrollDir
 import com.hereliesaz.mcpserved.tree.Pruner
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
 import kotlin.coroutines.resume
 
 /**
@@ -130,28 +132,32 @@ class A11yBackend : ControlBackend {
      * cancellation. A cancelled gesture is a genuine failure — usually another
      * window stealing touch — and must not be reported as success.
      */
-    private suspend fun gesture(p: Path, startMs: Long, durationMs: Long): Result<Unit> {
-        val s = svc ?: return err("accessibility service not connected")
-        val stroke = GestureDescription.StrokeDescription(p, startMs, durationMs.coerceAtLeast(1))
-        val desc = GestureDescription.Builder().addStroke(stroke).build()
+    private suspend fun gesture(p: Path, startMs: Long, durationMs: Long): Result<Unit> =
+        // dispatchGesture and its result callback must run against the service's
+        // main looper. The callers reach here from the relay pump on
+        // Dispatchers.Default, so the hop to Main is explicit rather than assumed.
+        withContext(Dispatchers.Main) {
+            val s = svc ?: return@withContext err("accessibility service not connected")
+            val stroke = GestureDescription.StrokeDescription(p, startMs, durationMs.coerceAtLeast(1))
+            val desc = GestureDescription.Builder().addStroke(stroke).build()
 
-        return suspendCancellableCoroutine { cont ->
-            val dispatched = s.dispatchGesture(
-                desc,
-                object : AccessibilityService.GestureResultCallback() {
-                    override fun onCompleted(g: GestureDescription?) {
-                        if (cont.isActive) cont.resume(Result.success(Unit))
-                    }
+            suspendCancellableCoroutine { cont ->
+                val dispatched = s.dispatchGesture(
+                    desc,
+                    object : AccessibilityService.GestureResultCallback() {
+                        override fun onCompleted(g: GestureDescription?) {
+                            if (cont.isActive) cont.resume(Result.success(Unit))
+                        }
 
-                    override fun onCancelled(g: GestureDescription?) {
-                        if (cont.isActive) cont.resume(err("gesture cancelled"))
-                    }
-                },
-                null
-            )
-            if (!dispatched && cont.isActive) cont.resume(err("dispatchGesture refused"))
+                        override fun onCancelled(g: GestureDescription?) {
+                            if (cont.isActive) cont.resume(err("gesture cancelled"))
+                        }
+                    },
+                    null
+                )
+                if (!dispatched && cont.isActive) cont.resume(err("dispatchGesture refused"))
+            }
         }
-    }
 
     private fun <T> err(msg: String): Result<T> = Result.failure(IllegalStateException(msg))
 }

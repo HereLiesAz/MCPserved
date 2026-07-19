@@ -55,7 +55,7 @@ export class RelayLink {
     this.ws = null;
   }
 
-  private async ensureConnected(): Promise<void> {
+  private async ensureConnected(timeoutMs = 15_000): Promise<void> {
     if (this.ws?.readyState === WebSocket.OPEN) return;
 
     // A device that has been asleep will not have a live socket at the relay.
@@ -69,12 +69,23 @@ export class RelayLink {
         headers: { "X-Device-Id": this.config.deviceId },
       });
 
+      // Every request is serialized through this.queue, so a connect that never
+      // settles wedges all later calls behind it. Bound the attempt and tear the
+      // half-open socket down if it lapses.
+      const timer = setTimeout(() => {
+        ws.removeAllListeners();
+        ws.terminate();
+        reject(new Error(`connection timed out after ${timeoutMs}ms`));
+      }, timeoutMs);
+
       const onError = (err: Error) => {
+        clearTimeout(timer);
         ws.removeAllListeners();
         reject(err);
       };
 
       ws.once("open", () => {
+        clearTimeout(timer);
         ws.removeListener("error", onError);
         this.ws = ws;
         this.attach(ws);

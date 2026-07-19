@@ -3,6 +3,7 @@ package com.hereliesaz.mcpserved.transport
 import com.hereliesaz.mcpserved.crypto.FrameCodec
 import com.hereliesaz.mcpserved.crypto.Pairing
 import com.hereliesaz.mcpserved.service.Dispatcher
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancelAndJoin
@@ -12,6 +13,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import okhttp3.OkHttpClient
 import okhttp3.WebSocket
@@ -171,7 +174,7 @@ class RelayClient(
             .header("X-Device-Id", pairing.deviceId)
             .build()
 
-        socket = http.newWebSocket(req, object : WebSocketListener() {
+        val ws = http.newWebSocket(req, object : WebSocketListener() {
             override fun onOpen(ws: WebSocket, response: HttpResponse) {
                 everOpen = true
                 _state.value = State.CONNECTED
@@ -195,8 +198,18 @@ class RelayClient(
                 done.trySend(everOpen)
             }
         })
+        socket = ws
 
-        return done.receive()
+        // done.receive() suspends until the socket closes. If the connect loop is
+        // cancelled while suspended here — stop(), or the scope tearing down — the
+        // socket would otherwise leak, since no callback fires to close it.
+        try {
+            return done.receive()
+        } catch (e: CancellationException) {
+            ws.close(1001, "cancelled")
+            if (socket === ws) socket = null
+            throw e
+        }
     }
 
     /**
@@ -233,7 +246,8 @@ class RelayClient(
 
             val request = runCatching {
                 json.decodeFromString<Request>(String(plaintext))
-            }.getOrElse {
+            }.getOrNull()
+            if (request == null) {
                 reply(Response.Err("malformed request"), aad)
                 continue
             }
