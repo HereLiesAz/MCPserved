@@ -1,22 +1,34 @@
 # MCPserved
 
-An MCP server and Android application that let an authorized client observe and
-control a phone, one granted package at a time.
+A desktop MCP server and an Android application that let an authorized client
+observe and control a phone — over plain `adb` for a quick connect, or through
+the on-device app for a richer, per-package-granted surface.
 
-The device decides. The MCP server carries sealed frames and holds no authority
-of its own — it sits downstream of a language model's output, which makes it the
-component least suited to being the thing that says yes.
+Everything is local. There is no relay and no cloud in the path: control travels
+a USB cable or an adb-over-Wi-Fi session the user set up themselves. The desktop
+server holds no authority of its own — it sits downstream of a language model's
+output, which makes it the component least suited to being the thing that says
+yes.
 
 ## Shape
 
 ~~~
-Claude <-> MCP server (stdio) <-> WSS relay <-> foreground service on the device
+                          ┌─ adb: input / uiautomator / screencap        (quick connect)
+Claude ─ MCP server ─────┤
+        (stdio)           └─ adb forward → 127.0.0.1 → on-device app      (paired upgrade)
 ~~~
 
-Both ends dial out. Carrier-grade NAT means the phone has no reachable address,
-so the relay exists solely because two dialling peers need something in the
-middle to be dialled at. It routes on an opaque device id, holds no keys, and
-cannot read a frame it forwards.
+Two backends behind one interface. The default drives the device straight over
+`adb`, so a model can control any phone with USB debugging (or adb-over-Wi-Fi)
+enabled — no app to install. When the on-device app is installed, paired, and
+reachable, the server upgrades to it for the semantic accessibility tree,
+per-package grants, and the notification mirror. `MCPSERVED_MODE` pins the choice
+to `adb` or `app`; the default, `auto`, prefers the app and falls back.
+
+The app never connects out. It binds a control server to `127.0.0.1` on the
+phone; `adb forward` bridges a desktop port onto it. Loopback is not routable, so
+nothing off-device can reach it, and the pairing key authenticates the one peer
+that may.
 
 ## Control layers
 
@@ -32,13 +44,14 @@ dispatches per operation.
 | `screenshot` | root `screencap` | MediaProjection |
 | `launch`, `shell` | root | Shizuku |
 
-`shell` is **omitted** from the tool manifest when no privileged backend exists,
-not disabled. A tool that was never listed is not part of the world; a disabled
-one invites a search for the way around it.
+The pure-adb backend covers the same operations with `input`, `uiautomator dump`,
+and `screencap`. It has no notification mirror or clipboard access — those need
+the app — and it says so rather than faking them.
 
 ## Authorization
 
-Per package, per scope, revocable, expiring by default.
+The on-device app authorizes per package, per scope, revocable, expiring by
+default.
 
 | Scope | Permits |
 | --- | --- |
@@ -54,69 +67,68 @@ renders the whole service inert, which is the correct resting state.
 
 Every mutating operation is bracketed: read the foreground package, check the
 grant, act, read the foreground package again. The second read exists because a
-window can change between check and act — a dialog appears, a notification takes
-focus — and without it a tap aimed at a granted screen lands on the confirmation
-button of something that was never granted, and returns success while doing it.
+window can change between check and act.
+
+The pure-adb backend has **no** per-package grant model — `adb` holds shell-level
+authority over the whole device, which is exactly what enabling USB debugging
+conferred. That is disclosed in the capability report and the session notice
+rather than dressed up as something narrower. When per-app authority matters, use
+the paired app.
 
 ## Setup
 
-**Device.** Sideload, enable the accessibility service, arm the service, grant
-packages. Notification access is optional. Root is detected by running `su -c id`
-rather than by looking for the binary, since Magisk hides itself from callers
-that ask the naive way; there is a manual override for when it lies anyway.
-
-**Server.**
+**Quick connect (adb).** Enable USB debugging on the phone and attach it, or pair
+it over Wi-Fi with `adb connect <ip>:5555`. Then point the MCP host at the server:
 
 ~~~bash
 cd mcp
 npm install
 npm run build
+node dist/index.js          # MCPSERVED_MODE defaults to auto → adb when unpaired
+~~~
+
+Set `MCPSERVED_ADB_SERIAL` to select a device when more than one is attached (a
+USB serial, or an `ip:port` for Wi-Fi), and `MCPSERVED_ADB` to point at a
+non-PATH adb binary.
+
+**Paired app (upgrade).** Install the app, enable the accessibility service, arm
+it, and grant packages. Then pair — a mutual QR exchange, both public keys out of
+band in both directions so nothing sits in the exchange that establishes trust:
+
+~~~bash
 npx mcpserved pair
 ~~~
 
-Pairing is a mutual QR exchange. Both public keys travel out of band in both
-directions — routing the server's key through the relay would be more convenient
-and would also let the relay substitute its own key during the one exchange that
-establishes trust.
-
-**Relay.**
-
-~~~bash
-cd relay
-npx wrangler secret put FCM_SERVER_KEY
-npx wrangler deploy
-~~~
-
-One Durable Object per device, using the WebSocket Hibernation API so an idle
-room costs nothing.
+With a pairing on file and the device reachable, the server uses the app
+automatically; it sets up the `adb forward` tunnel itself on connect.
 
 ## Known constraints
 
-- **The screen stays on during a session.** Accessibility events stop and the
-  node tree empties once the device locks, so a session on a dark screen fails
-  every action while appearing merely unlucky. Keep the TTL short.
+- **The screen stays on during an app session.** Accessibility events stop and
+  the node tree empties once the device locks, so a session on a dark screen
+  fails every action while appearing merely unlucky. Keep the TTL short.
 - **Shizuku dies on reboot.** Without root, every restart costs a manual re-pair.
-- **Google is in the wake path.** FCM carries the signal to redial, never
-  content. It sees that a device was asked to connect.
-- **Not shippable on Play.** Accessibility-for-automation gets applications
-  pulled. Sideload or F-Droid.
-- **iOS is impossible.** No third-party iOS application can automate another —
-  not native, not entitled, not with a paid account. The constraint is Apple's,
-  not the web's.
+- **`adb input text` is ASCII-ish.** Spaces are handled; newlines and most
+  non-ASCII are not. The app's text backend handles the rest.
+- **adb has no clipboard or notification list.** Those operations need the app.
+- **Play still requires disclosure.** Removing the relay removes the remote-
+  control profile that gets accessibility apps pulled, but the AccessibilityService
+  use must still be declared honestly (Permissions Declaration + a prominent
+  in-app disclosure). The desktop adb server is not a Play app and has no such
+  exposure.
+- **iOS is impossible.** No third-party iOS application can automate another.
 
 ## Not yet done
 
-- `google-services.json` is absent. Add a Firebase project or strip the FCM
-  dependency and lose the wake path.
 - `MediaProjection` capture is declared as a capability but has no
-  implementation; unrooted devices currently cannot screenshot at all.
+  implementation; unrooted devices currently cannot screenshot through the app
+  (the adb backend's `screencap` works regardless).
 - Launcher icon is the template's.
 - No tests.
 
 ## Layout
 
 ~~~
-app/     Android application — service, backends, grants, crypto, UI
-relay/   Cloudflare Worker + Durable Object
-mcp/     MCP server — stdio transport, tool schemas, relay client
+app/     Android application — service, backends, grants, crypto, loopback server, UI
+mcp/     Desktop MCP server — stdio transport, tool schemas, adb + app backends
 ~~~

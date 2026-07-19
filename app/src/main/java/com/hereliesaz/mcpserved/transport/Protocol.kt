@@ -4,11 +4,11 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 /**
- * Wire protocol shared by the device, the relay, and the MCP server.
+ * Wire protocol shared by the device and the desktop MCP server.
  *
- * Frames are serialized to JSON, then sealed with ChaCha20-Poly1305 before
- * they reach the relay. The relay routes on [Envelope.deviceId] alone and
- * never observes plaintext.
+ * Frames are serialized to JSON, then sealed with ChaCha20-Poly1305 before they
+ * cross the loopback socket. [Envelope.deviceId] addresses the frame; the
+ * ciphertext is opaque to anything that is not the paired peer.
  *
  * Every [Response] carries [Response.ok]. Mutating responses additionally
  * carry [Response.foregroundChanged], which is the caller's only reliable
@@ -23,6 +23,26 @@ data class Envelope(
     /** Base64 ChaCha20-Poly1305 ciphertext of a [Request] or [Response]. */
     val payload: String
 )
+
+/**
+ * The first line the desktop server sends on a fresh loopback connection.
+ *
+ * It carries the per-connection [salt] both endpoints fold into the key
+ * derivation, which is what lets each connection restart its sequence counter at
+ * zero without ever replaying a nonce (see [com.hereliesaz.mcpserved.crypto.Pairing.deriveKeys]).
+ * No secret travels here: the salt is public by design, and a peer that lacks the
+ * shared pairing secret still cannot produce a single openable frame.
+ */
+@Serializable
+data class Hello(
+    /** Protocol version; must match [com.hereliesaz.mcpserved.transport.PROTO_VERSION]. */
+    val v: Int,
+    /** Base64url per-connection salt for the frame-key derivation. */
+    val salt: String
+)
+
+/** Loopback wire-protocol version. Bumped in lockstep with the desktop server. */
+const val PROTO_VERSION: Int = 2
 
 /** Capabilities advertised by the device so the caller never probes blindly. */
 @Serializable

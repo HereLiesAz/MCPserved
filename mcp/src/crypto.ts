@@ -85,17 +85,26 @@ function publicFromRaw(raw: Buffer): KeyObject {
 }
 
 /**
- * Derives the two directional frame keys from an X25519 agreement.
+ * Derives the two directional frame keys from an X25519 agreement and a
+ * per-connection salt.
  *
  * Two keys rather than one, for the same reason the device derives two: with a
  * shared key both directions would draw nonces from the same space, and a
  * request and a response bearing the same sequence number would reuse a nonce.
  * Under ChaCha20-Poly1305 that is not a weakening — it exposes the keystream and
  * makes the authenticator forgeable.
+ *
+ * The salt is fresh random bytes this side picks per connection and sends in its
+ * opening hello, and it must reach `Pairing.deriveKeys` on the device byte for
+ * byte. Folding it in means every connection derives distinct keys, so each
+ * connection's sequence counter may safely restart at zero — which is what lets
+ * an MCP host relaunch this process (resetting the counter) without the device
+ * rejecting the first frame as a replay under the old key.
  */
 export function deriveKeys(
   serverPrivateRaw: Buffer,
   devicePublicRaw: Buffer,
+  salt: Buffer,
 ): FrameKeys {
   const shared = diffieHellman({
     privateKey: privateFromRaw(serverPrivateRaw),
@@ -103,7 +112,7 @@ export function deriveKeys(
   });
 
   const kdf = (info: string): Buffer =>
-    Buffer.from(hkdfSync("sha256", shared, Buffer.alloc(0), info, 32));
+    Buffer.from(hkdfSync("sha256", shared, salt, info, 32));
 
   return {
     deviceToServer: kdf(INFO_D2S),
@@ -150,7 +159,7 @@ export class FrameCodec {
    * Decrypts a frame, enforcing strictly increasing sequence.
    *
    * The counter advances only after the tag verifies. Advancing on receipt would
-   * let anyone able to reach the relay burn sequence numbers with garbage and
+   * let anyone able to reach the socket burn sequence numbers with garbage and
    * stall the legitimate peer.
    */
   open(seq: bigint, payloadB64: string, aad: Buffer): Buffer {

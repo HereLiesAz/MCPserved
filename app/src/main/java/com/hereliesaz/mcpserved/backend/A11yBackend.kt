@@ -134,8 +134,9 @@ class A11yBackend : ControlBackend {
      */
     private suspend fun gesture(p: Path, startMs: Long, durationMs: Long): Result<Unit> =
         // dispatchGesture and its result callback must run against the service's
-        // main looper. The callers reach here from the relay pump on
-        // Dispatchers.Default, so the hop to Main is explicit rather than assumed.
+        // main looper. The callers reach here from the loopback server's frame
+        // loop on Dispatchers.Default, so the hop to Main is explicit rather than
+        // assumed.
         withContext(Dispatchers.Main) {
             val s = svc ?: return@withContext err("accessibility service not connected")
             val stroke = GestureDescription.StrokeDescription(p, startMs, durationMs.coerceAtLeast(1))

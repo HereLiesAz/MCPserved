@@ -5,25 +5,66 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
-import { loadConfig } from "./config.js";
-import { RelayLink } from "./relay.js";
+import { tryLoadConfig } from "./config.js";
+import { AppLink } from "./app-link.js";
+import { AdbLink } from "./adb-link.js";
+import type { Link } from "./link.js";
 import { buildTools, type Capabilities, type ToolDef } from "./tools.js";
 import { pair } from "./pair.js";
 
 /**
- * MCP server for MCPserved.
+ * Desktop MCP server for MCPserved.
  *
  * Stdio transport, one device per process. Multiple devices would mean routing
  * every call by a target argument the model has to get right, and getting it
  * wrong means acting on the wrong phone — a failure with no recovery. Running a
  * second server entry is cheaper than a mistake of that shape.
  *
- * This process holds no authority. It carries sealed frames to a device that
- * decides, on its own, what to permit. Nothing here can widen what the user
- * granted, which is deliberate: this is the component sitting downstream of a
- * language model's output, and it is therefore the component least suited to
- * being the thing that says yes.
+ * Two backends sit behind one interface. The quick-connect default drives the
+ * device straight over `adb`; when the on-device app is installed, paired, and
+ * reachable, the server upgrades to it for the richer accessibility surface
+ * (semantic tree, per-app grants, notification mirror). `MCPSERVED_MODE` pins the
+ * choice to `adb` or `app`; the default, `auto`, prefers the app and falls back.
+ *
+ * This process holds no authority of its own. In app mode it carries sealed
+ * frames to a device that decides what to permit; in adb mode it is a thin shell
+ * over tools the user has already authorized by enabling USB debugging. Either
+ * way it sits downstream of a language model's output, which is the component
+ * least suited to being the thing that says yes.
  */
+
+/**
+ * Picks a backend.
+ *
+ * In `auto` (or `app`) mode with a pairing on file, it probes the on-device app
+ * once. If the app answers, that link — already connected — is used. Otherwise
+ * `auto` falls back to adb and `app` fails loudly, since a pinned choice that
+ * silently did something else would be worse than an error.
+ */
+async function chooseLink(): Promise<Link> {
+  const mode = (process.env.MCPSERVED_MODE ?? "auto").toLowerCase();
+  const config = mode === "adb" ? null : tryLoadConfig();
+
+  if (config) {
+    const app = new AppLink(config);
+    try {
+      const caps = await app.send({ op: "capabilities" }, 5_000);
+      if (caps && caps.ok) return app;
+    } catch {
+      // Unreachable app: fall through to the fallback below.
+    }
+    app.close();
+    if (mode === "app") {
+      throw new Error(
+        "MCPSERVED_MODE=app, but the on-device app did not answer over adb-forward. " +
+          "Check that it is installed, paired, and armed, and that the device is " +
+          "reachable (`adb devices`, or `adb connect <ip>:5555` for Wi-Fi).",
+      );
+    }
+  }
+
+  return new AdbLink();
+}
 
 async function main(): Promise<void> {
   if (process.argv[2] === "pair") {
@@ -31,8 +72,7 @@ async function main(): Promise<void> {
     return;
   }
 
-  const config = loadConfig();
-  const link = new RelayLink(config);
+  const link = await chooseLink();
 
   /**
    * Tool list, resolved once the device has been reached.
@@ -62,7 +102,7 @@ async function main(): Promise<void> {
   }
 
   const server = new Server(
-    { name: "mcpserved", version: "0.1.0" },
+    { name: "mcpserved", version: "0.2.0" },
     { capabilities: { tools: {} } },
   );
 

@@ -1,4 +1,4 @@
-import type { RelayLink } from "./relay.js";
+import type { Link } from "./link.js";
 
 /**
  * Tool surface exposed to the model.
@@ -25,7 +25,7 @@ export interface ToolDef {
   name: string;
   description: string;
   inputSchema: Record<string, unknown>;
-  handler: (args: any, link: RelayLink) => Promise<string>;
+  handler: (args: any, link: Link) => Promise<string>;
 }
 
 const obj = (

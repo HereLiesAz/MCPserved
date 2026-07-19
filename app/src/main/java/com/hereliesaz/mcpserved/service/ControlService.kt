@@ -21,26 +21,23 @@ import com.hereliesaz.mcpserved.crypto.Pairing
 import com.hereliesaz.mcpserved.grant.Enforcer
 import com.hereliesaz.mcpserved.grant.GrantStore
 import com.hereliesaz.mcpserved.grant.SessionLog
-import com.hereliesaz.mcpserved.transport.RelayClient
+import com.hereliesaz.mcpserved.transport.LocalServer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
 
 /**
  * Foreground service holding everything with a lifetime longer than one request:
  * the backend resolver, the grant store, the session, the wakelock, and the
- * connection to the relay.
+ * loopback control server.
  *
  * The service runs whenever the app is armed, not only during a session. It must
- * be resident to receive the wake signal that starts a session at all — a service
- * that only exists during sessions could never be told to begin one.
+ * be resident so the desktop server can reach the loopback port and open a
+ * session at all — a service that only existed during sessions could never be
+ * told to begin one.
  *
  * The persistent notification is not a formality imposed by the platform. It is
  * the operator's only continuous indication that something is holding authority
@@ -59,7 +56,7 @@ class ControlService : Service() {
         /** Ends the session and clears every grant. The panic control. */
         const val ACTION_REVOKE_ALL = "com.hereliesaz.mcpserved.REVOKE_ALL"
 
-        /** Stops the service entirely, disconnecting from the relay. */
+        /** Stops the service entirely, closing the loopback control server. */
         const val ACTION_DISARM = "com.hereliesaz.mcpserved.DISARM"
 
         @Volatile
@@ -81,7 +78,7 @@ class ControlService : Service() {
         private set
     lateinit var pairing: Pairing
         private set
-    lateinit var relay: RelayClient
+    lateinit var server: LocalServer
         private set
 
     private var wakeLock: PowerManager.WakeLock? = null
@@ -104,13 +101,13 @@ class ControlService : Service() {
         enforcer = Enforcer(resolver, grants, log)
         session = Session()
         pairing = Pairing(applicationContext)
-        relay = RelayClient(pairing, Dispatcher(applicationContext, this), scope)
+        server = LocalServer(pairing, Dispatcher(applicationContext, this), scope)
 
         setArmed(true)
         createChannel()
         startForeground(NOTIFICATION_ID, buildNotification())
 
-        relay.start()
+        server.start()
         scope.launch { reaper() }
     }
 
@@ -127,7 +124,6 @@ class ControlService : Service() {
                 stopSelf()
                 return START_NOT_STICKY
             }
-            WakeService.ACTION_WAKE -> relay.wake()
         }
         return START_STICKY
     }
@@ -136,7 +132,7 @@ class ControlService : Service() {
 
     override fun onDestroy() {
         endSession()
-        scope.launch { relay.stop() }
+        scope.launch { server.stop() }
         scope.cancel()
         instance = null
         super.onDestroy()
@@ -154,29 +150,6 @@ class ControlService : Service() {
             .edit()
             .putBoolean(BootReceiver.KEY_ARMED, armed)
             .apply()
-    }
-
-    /**
-     * Uploads a rotated FCM token to the relay.
-     *
-     * Fire-and-forget. A failed upload costs one slow session start, not a broken
-     * one, because the client redials on its own backoff regardless.
-     */
-    fun registerWakeToken(token: String) {
-        scope.launch {
-            runCatching {
-                val http = pairing.relayUrl
-                    .replace(Regex("^wss:"), "https:")
-                    .replace(Regex("^ws:"), "http:")
-                OkHttpClient().newCall(
-                    Request.Builder()
-                        .url("$http/wake")
-                        .header("X-Device-Id", pairing.deviceId)
-                        .put(token.toRequestBody("text/plain".toMediaType()))
-                        .build()
-                ).execute().close()
-            }
-        }
     }
 
     /**

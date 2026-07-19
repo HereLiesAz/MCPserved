@@ -17,8 +17,9 @@ import com.hereliesaz.mcpserved.transport.Scope
  * Turns a decrypted [Request] into a [Response].
  *
  * The single place where the wire protocol meets the device. Everything upstream
- * — relay, crypto, socket — is transport and knows nothing about what a request
- * means; everything downstream is mechanism and knows nothing about who asked.
+ * — loopback socket, crypto, framing — is transport and knows nothing about what
+ * a request means; everything downstream is mechanism and knows nothing about who
+ * asked.
  *
  * Three invariants hold for every branch:
  *

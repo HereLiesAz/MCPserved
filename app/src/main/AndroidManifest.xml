@@ -5,21 +5,27 @@
     Permission notes, since several here are unusual and all of them are the
     kind a reviewer should be suspicious of:
 
-    - BIND_ACCESSIBILITY_SERVICE is the entire product. It is also the permission
-      most abused by malware, which is why this application is distributed
-      outside Play and why the grant table exists in the first place.
+    - BIND_ACCESSIBILITY_SERVICE is the entire product: it is what lets the app
+      read the screen and dispatch input on the user's behalf. It is also the
+      permission most abused by malware, which is why the app is inert until the
+      user grants specific packages, why every session is time-boxed and shown in
+      an ongoing notification, and why control arrives only over a local loopback
+      port the user bridges themselves — never from the network.
+    - INTERNET is required by the platform to open any socket, including the
+      loopback ServerSocket the control channel binds to 127.0.0.1. The app makes
+      no outbound or remote connections; the only reachable listener is on
+      loopback, reached through an `adb forward` tunnel the user sets up.
     - WAKE_LOCK holds the screen during a session. Accessibility events stop and
       the node tree empties once the device locks, so a session on a dark screen
       would fail every action while appearing merely unlucky.
     - FOREGROUND_SERVICE_SPECIAL_USE rather than a narrower type: no declared
-      category describes "remote agent control", and claiming one that does not
-      fit would be a false declaration to the platform.
+      category describes "user-authorized device automation", and claiming one
+      that does not fit would be a false declaration to the platform.
 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.INTERNET" />
-    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
@@ -61,9 +67,9 @@
         </activity>
 
         <!--
-            Holds the resolver, the grant store, the session, and the relay
-            connection. Runs whenever the app is armed rather than only during a
-            session: a service that existed only while a session ran could never
+            Holds the resolver, the grant store, the session, and the loopback
+            control server. Runs whenever the app is armed rather than only during
+            a session: a service that existed only while a session ran could never
             be told to begin one.
         -->
         <service
@@ -72,7 +78,7 @@
             android:foregroundServiceType="specialUse">
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="Remote device control for an authorized MCP client" />
+                android:value="User-authorized on-device automation over a local loopback connection" />
         </service>
 
         <service
@@ -95,14 +101,6 @@
             android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
             <intent-filter>
                 <action android:name="android.service.notification.NotificationListenerService" />
-            </intent-filter>
-        </service>
-
-        <service
-            android:name=".service.WakeService"
-            android:exported="false">
-            <intent-filter>
-                <action android:name="com.google.firebase.MESSAGING_EVENT" />
             </intent-filter>
         </service>
 

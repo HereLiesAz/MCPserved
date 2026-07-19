@@ -33,13 +33,12 @@ import com.journeyapps.barcodescanner.ScanOptions
 import android.graphics.Color as AndroidColor
 
 /**
- * One-time key exchange with the MCP server.
+ * One-time key exchange with the desktop MCP server.
  *
- * Both public keys travel by camera, in both directions. Routing the server's
- * key through the relay would be far more convenient and would also let the
- * relay substitute its own key during the single exchange that establishes
- * trust. A relay that cannot read is only guaranteed if it never had the
- * opportunity to become the peer.
+ * Both public keys travel by camera, in both directions, so no third party ever
+ * sits in the exchange that establishes trust. The shared secret is then what
+ * authenticates the desktop server when it later connects to the device's
+ * loopback control port through an `adb forward` tunnel.
  *
  * Pairing confers no authority. It establishes that two endpoints share a
  * secret; what may actually be done is decided afterwards, per package, on the
@@ -144,7 +143,7 @@ fun PairingScreen(vm: MainViewModel) {
 
         Text(
             "Mints a new key and forgets the old peer. The only revocation that " +
-                "also stops it reaching the relay.",
+                "also stops it connecting at all.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
