@@ -1,0 +1,17 @@
+name = "mcpserved-relay"
+main = "src/index.ts"
+compatibility_date = "2024-12-01"
+
+# One Durable Object per device. The object is also the mutex that keeps two MCP
+# clients from driving the same phone and producing interleaved actions neither
+# of them ordered.
+[[durable_objects.bindings]]
+name = "DEVICE_ROOM"
+class_name = "DeviceRoom"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["DeviceRoom"]
+
+# Set with: npx wrangler secret put FCM_SERVER_KEY
+# Used only to push a data-only wake message. Never touches frame content.

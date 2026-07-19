@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Accessibility service configuration.
+
+    canRetrieveWindowContent and canPerformGestures are the two capabilities the
+    whole application rests on: the first reads the node tree, the second
+    dispatches touches. Neither has a narrower form.
+
+    accessibilityEventTypes is deliberately restricted to window state changes.
+    Subscribing to everything would deliver text-changed and content-changed
+    events for every keystroke in every application on the device, most of which
+    would be from packages holding no grant. The service would then be receiving
+    exactly the data the grant table exists to withhold — filtering it after
+    arrival is not the same as never having been sent it.
+
+    No packageNames filter: the foreground package must be observable even when
+    it is one the user never granted, because that observation is precisely what
+    causes the request to be refused.
+-->
+<accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:accessibilityEventTypes="typeWindowStateChanged"
+    android:accessibilityFeedbackType="feedbackGeneric"
+    android:accessibilityFlags="flagDefault|flagRetrieveInteractiveWindows|flagReportViewIds"
+    android:canPerformGestures="true"
+    android:canRetrieveWindowContent="true"
+    android:description="@string/a11y_description"
+    android:notificationTimeout="100"
+    android:settingsActivity="com.hereliesaz.mcpserved.ui.MainActivity" />

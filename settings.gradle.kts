@@ -17,8 +17,10 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
+        // Shizuku is published here and nowhere else.
+        maven("https://s01.oss.sonatype.org/content/repositories/releases")
     }
 }
 
-rootProject.name = "helloworld"
+rootProject.name = "MCPserved"
 include(":app")

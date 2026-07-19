@@ -1,4 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">HelloWorld</string>
-    <string name="hello_world">Hello, World!</string>
+    <string name="app_name">MCPserved</string>
+
+    <string name="a11y_label">MCPserved</string>
+    <string name="a11y_description">Lets an authorized remote client read the screen and dispatch touches, restricted to applications you have explicitly granted. Nothing is reachable until you grant it, and every action is logged while a session is open.</string>
+    <string name="notif_listener_label">MCPserved notifications</string>
+
+    <string name="channel_session">Session</string>
+    <string name="channel_session_desc">Shows while MCPserved is armed or a session is open.</string>
+
+    <string name="notif_armed">MCPserved armed</string>
+    <string name="notif_armed_body">Listening. No session open.</string>
+    <string name="notif_active">Session active · %1$ds left</string>
+    <string name="notif_active_body">Backends: %1$s</string>
+
+    <string name="action_stop">Stop session</string>
+    <string name="action_revoke_all">Revoke all</string>
+    <string name="action_disarm">Disarm</string>
 </resources>
