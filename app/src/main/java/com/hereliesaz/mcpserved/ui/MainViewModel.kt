@@ -1,13 +1,13 @@
 package com.hereliesaz.mcpserved.ui
 
 import android.app.Application
-import android.content.Context
 import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.provider.Settings
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.hereliesaz.mcpserved.crypto.Pairing
+import com.hereliesaz.mcpserved.grant.ConsentStore
 import com.hereliesaz.mcpserved.grant.Grant
 import com.hereliesaz.mcpserved.grant.GrantStore
 import com.hereliesaz.mcpserved.service.ControlService
@@ -30,22 +30,27 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     private val pairing = Pairing(app)
     private val store = GrantStore(app)
-    private val consentPrefs = app.getSharedPreferences("consent", Context.MODE_PRIVATE)
+    private val consent = ConsentStore(app)
 
     /**
      * Whether the prominent disclosure has been accepted.
      *
-     * Gates the entire UI. It is recorded once and never cleared here: revoking
-     * consent is uninstalling the app, which is the honest scope for a decision
-     * this broad.
+     * Gates the entire UI. `null` means "not yet loaded": the value is read off
+     * the main thread, and while it is pending the UI shows neither the
+     * disclosure nor the main surface, so there is no flash of gated content and
+     * no disk I/O on the main thread. It is recorded once and never cleared here:
+     * revoking consent is uninstalling the app, which is the honest scope for a
+     * decision this broad.
      */
-    private val _hasConsented = MutableStateFlow(consentPrefs.getBoolean(KEY_CONSENTED, false))
-    val hasConsented: StateFlow<Boolean> = _hasConsented
+    private val _hasConsented = MutableStateFlow<Boolean?>(null)
+    val hasConsented: StateFlow<Boolean?> = _hasConsented
 
     /** Records acceptance of the disclosure and lets the rest of the app open. */
     fun grantConsent() {
-        consentPrefs.edit().putBoolean(KEY_CONSENTED, true).apply()
-        _hasConsented.value = true
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) { consent.accept() }
+            _hasConsented.value = true
+        }
     }
 
     /** One installed application, with whatever grant it currently holds. */
@@ -72,6 +77,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     init {
         refreshApps()
+        viewModelScope.launch {
+            _hasConsented.value = withContext(Dispatchers.IO) { consent.isAccepted }
+        }
     }
 
     /**
@@ -176,9 +184,5 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         )
-    }
-
-    private companion object {
-        const val KEY_CONSENTED = "disclosure_accepted"
     }
 }

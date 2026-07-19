@@ -19,11 +19,11 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 
@@ -46,11 +46,16 @@ class MainActivity : ComponentActivity() {
                 // The disclosure gates everything. Until it is accepted there is no
                 // way through to the accessibility-settings shortcut, the pairing
                 // screen, or the arm control — the affirmative step comes first.
-                val consented by vm.hasConsented.collectAsState()
-                if (consented) {
-                    Root(vm)
-                } else {
-                    DisclosureScreen(onAccept = vm::grantConsent, onDecline = { finish() })
+                // null is the brief pre-load state: draw the themed background
+                // rather than either real surface, so nothing gated flashes.
+                val consented by vm.hasConsented.collectAsStateWithLifecycle()
+                when (consented) {
+                    true -> Root(vm)
+                    false -> DisclosureScreen(onAccept = vm::grantConsent, onDecline = { finish() })
+                    null -> Surface(
+                        modifier = Modifier.fillMaxSize(),
+                        color = MaterialTheme.colorScheme.background
+                    ) {}
                 }
             }
         }
