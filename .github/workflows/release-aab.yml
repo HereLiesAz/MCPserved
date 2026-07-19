@@ -1,0 +1,205 @@
+name: Build & Publish AAB (Play)
+
+# Builds a SIGNED Android App Bundle and, when publishing is on, fans the same AAB out to
+# every Play track in one edit transaction:
+#     internal   → completed  (auto-rolled out, same as before)
+#     alpha      → draft      (closed testing, staged for manual promotion)
+#     beta       → draft      (open testing,   staged for manual promotion)
+#     production → draft      (production,     staged for manual promotion)
+# The track fan-out is hardcoded in .github/scripts/play_multitrack_publish.py — the
+# workflow just decides whether to run it. `publish=false` on manual dispatch skips the
+# Play step entirely (build + artifact only).
+on:
+  push:
+    # Auto-publish on merges to main only. Feature-branch pushes would otherwise trigger a
+    # release build (and, with the gate below open, a Play upload) for every commit — wasteful
+    # and unsafe. Manual dispatch (workflow_dispatch) still works from any branch.
+    branches: [ main ]
+    # Don't re-trigger on the version-bump commit this workflow pushes back (it also carries
+    # [skip ci], but ignoring the path is a clean belt-and-suspenders).
+    paths-ignore:
+      - version.properties
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Publish to Play? (off = build + upload .aab artifact only)"
+        type: boolean
+        default: true
+
+# Least-privilege default token; jobs needing more declare their own permissions block.
+permissions:
+  contents: read
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    permissions:
+      # write so a publish run can commit the incremented versionBuild in version.properties back.
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          # Full history so the persist step can rebase its version.properties bump onto the fresh
+          # tip. The versionCode is versionBuild from version.properties (the single source of truth),
+          # NOT the git commit count.
+          fetch-depth: 0
+
+      # OpenCV (Java + native via Prefab) is a plain Maven Central dependency now — Gradle resolves
+      # it during the build, so there is no library-fetch step here anymore.
+
+      - name: Inject Google Services
+        env:
+          GOOGLE_SERVICES_API_KEY: ${{ secrets.GOOGLE_SERVICES_API_KEY }}
+          PROJECT_ID: ${{ secrets.PROJECT_ID }}
+          CLIENT_ID: ${{ secrets.CLIENT_ID }}
+          ARCORE_API_KEY: ${{ secrets.ARCORE_API_KEY }}
+        run: |
+          if [ -f "app/google-services.json.template" ]; then
+            echo "Template found. Injecting secrets..."
+            sed -e 's/{{\([^}]*\)}}/${\1}/g' app/google-services.json.template | envsubst > app/google-services.json
+          else
+            echo "Warning: google-services.json.template not found. Skipping injection."
+          fi
+
+          # Inject ARCore API Key into local.properties for build.gradle.kts to pick up
+          echo "ARCORE_API_KEY=$ARCORE_API_KEY" >> local.properties
+
+      - name: Decode signing keystore
+        env:
+          KEYSTORE_RAW: ${{ secrets.KEYSTORE_RAW }}
+        run: |
+          if [ -z "$KEYSTORE_RAW" ]; then
+            echo "::error::KEYSTORE_RAW secret is empty — cannot produce a signed bundle."
+            exit 1
+          fi
+          echo "$KEYSTORE_RAW" | base64 -d > app/keystore.jks
+          if [ ! -s app/keystore.jks ]; then
+            echo "::error::Decoded keystore is empty — KEYSTORE_RAW is not valid base64."
+            exit 1
+          fi
+          echo "Keystore decoded to app/keystore.jks ($(stat -c%s app/keystore.jks) bytes)"
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v6
+        env:
+          FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+        with:
+          cache-read-only: false
+          dependency-graph: disabled
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Resolve package name
+        id: meta
+        run: |
+          # Read the applicationId straight from the build config (don't hardcode).
+          PKG=$(grep -E 'applicationId\s*=' app/build.gradle.kts | head -n1 | sed -E 's/.*"([^"]+)".*/\1/')
+          echo "package_name=$PKG" >> "$GITHUB_OUTPUT"
+
+      - name: Build Release AAB (signed)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          # Consumed by the signingConfigs.release block in app/build.gradle.kts.
+          KEYSTORE_FILE: ${{ github.workspace }}/app/keystore.jks
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        # No -PversionBuild override: build.gradle.kts auto-increments versionBuild in
+        # version.properties on every build. The persist step below commits that bump back.
+        run: |
+          ./gradlew bundleRelease
+
+      - name: Upload AAB artifact
+        # Always upload the artifact — even on a failed Play upload the user can grab the file
+        # from workflow artifacts and upload manually. Runs before the Play step so the artifact
+        # exists no matter what happens next.
+        uses: actions/upload-artifact@v7
+        with:
+          name: graffitixr-release-aab
+          path: app/build/outputs/bundle/release/*.aab
+          if-no-files-found: error
+
+      - name: Publish to Google Play (internal completed + alpha/beta/prod draft)
+        # r0adkll/upload-google-play@v1 forces a single status per call, so it can't do the
+        # mixed internal=completed + others=draft fan-out we want in one Play edit. The script
+        # opens one edit, uploads the AAB once, creates four releases (one per track, each
+        # with its own status), and commits.
+        #
+        # `id: play-upload` is only used by the fail-loudly step below to distinguish a real
+        # failure from a skipped run. The persist step no longer gates on this — versionBuild
+        # advances unconditionally so the number stream doesn't stall on a bad Play upload.
+        id: play-upload
+        if: ${{ github.event_name == 'push' || inputs.publish }}
+        env:
+          PACKAGE_NAME: ${{ steps.meta.outputs.package_name }}
+          AAB_GLOB: app/build/outputs/bundle/release/*.aab
+          PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+        run: |
+          # Python 3 is preinstalled on ubuntu-latest. google-auth-httplib2 and httplib2 are
+          # transitive deps of google-api-python-client but naming them keeps the intent clear
+          # (the script imports both directly to configure a longer socket timeout).
+          pip install --quiet google-api-python-client google-auth google-auth-httplib2 httplib2==0.15.0
+          python .github/scripts/play_multitrack_publish.py
+
+      - name: Persist auto-incremented versionCode
+        # Commit the version.properties bump that the build just made, so the next release is
+        # strictly higher (Play rejects a duplicate versionCode). Runs unconditionally on every
+        # build so main's versionBuild never falls behind the numbers the build has already
+        # burned — a failed Play upload does NOT stall the version stream. [skip ci] (and the
+        # push-trigger paths-ignore) stop a re-trigger.
+        #
+        # main can advance under us mid-run (another workflow, a merged PR). Retry loop
+        # rebases onto the fresh tip and re-pushes — version.properties only ever monotonically
+        # bumps and this workflow is the sole writer, so the rebase is always trivial.
+        if: ${{ always() && (github.event_name == 'push' || inputs.publish) }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add version.properties
+          if git diff --cached --quiet; then
+            echo "version.properties unchanged — nothing to persist"
+            exit 0
+          fi
+          NEW=$(grep -E '^versionBuild=' version.properties | cut -d'=' -f2 | tr -d '\r ')
+          git commit -m "ci: versionBuild=${NEW} [skip ci]"
+          BRANCH="${{ github.ref_name }}"
+          for attempt in 1 2 3 4 5; do
+            if git push origin "HEAD:${BRANCH}"; then
+              echo "Pushed versionBuild=${NEW} on attempt ${attempt}"
+              exit 0
+            fi
+            echo "::warning::Push rejected on attempt ${attempt}; rebasing onto origin/${BRANCH} and retrying"
+            git fetch origin "${BRANCH}"
+            # Rebase our single commit onto the fresh tip. -X theirs keeps the incoming version
+            # if a concurrent bump got there first — since versionBuild is monotonically
+            # increasing and we've already burned this number locally, letting theirs win here
+            # is safe: the very next build will re-bump past both.
+            if ! git rebase -X theirs "origin/${BRANCH}"; then
+              git rebase --abort || true
+              echo "::error::Rebase failed on attempt ${attempt}"
+              exit 1
+            fi
+          done
+          echo "::error::Could not push versionBuild=${NEW} after 5 attempts"
+          exit 1
+
+      - name: Fail loudly if Play upload didn't succeed
+        # The script fails the job on any API error, but the ::error:: annotation surfaces the
+        # reason in the Actions summary — no digging through the upload step's output required.
+        # The exit 1 is redundant with the script's own failure but keeps the "failed run"
+        # reading unambiguous even if a future edit accidentally weakens the upload step's
+        # semantics. Skipped runs (publish=false on manual dispatch) don't trip this.
+        if: ${{ always() && steps.play-upload.outcome != 'success' && steps.play-upload.outcome != 'skipped' }}
+        run: |
+          echo "::error title=Play upload failed::AAB did not land on all target tracks. Workflow is FAILED — versionBuild in main was NOT advanced. Re-run after fixing the upload." >&2
+          exit 1

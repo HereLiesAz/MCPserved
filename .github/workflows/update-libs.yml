@@ -1,0 +1,71 @@
+name: Update Dependencies
+
+on:
+  workflow_dispatch:
+
+# Least-privilege default token; jobs needing more declare their own permissions block.
+permissions:
+  contents: read
+
+jobs:
+  update-libs:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Switch to dependencies branch
+        run: |
+          # Check if remote branch exists
+          if git ls-remote --exit-code --heads origin dependencies; then
+            git checkout dependencies
+            git pull origin dependencies
+          else
+            git checkout --orphan dependencies
+            git rm -rf .
+          fi
+
+      - name: Create libs directory
+        run: mkdir -p libs
+
+      # OpenCV is no longer vendored here — it's imported from Maven Central (org.opencv:opencv,
+      # Java + native via Prefab). Bump its version in gradle/libs.versions.toml instead.
+
+      - name: Download GLM
+        env:
+          GLM_VERSION: 1.0.1
+        run: |
+          echo "Downloading GLM ${GLM_VERSION}..."
+          rm -rf libs/glm
+          wget -q https://github.com/g-truc/glm/archive/refs/tags/${GLM_VERSION}.zip -O glm.zip
+          unzip -q glm.zip
+          mkdir -p libs/glm
+          mv glm-${GLM_VERSION}/glm libs/glm/glm
+          rm -rf glm-${GLM_VERSION} glm.zip
+
+      - name: Download LiteRT
+        env:
+          LITERT_VERSION: 2.1.0
+        run: |
+          echo "Downloading LiteRT ${LITERT_VERSION}..."
+          rm -rf libs/litert
+          mkdir -p libs/litert
+          echo "LiteRT version ${LITERT_VERSION}" > libs/litert/README.md
+          echo "Please manually populate this directory or update the workflow with a valid URL." >> libs/litert/README.md
+
+      - name: Commit and Push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add libs
+          # Only commit if there are changes
+          if ! git diff --cached --quiet; then
+            git commit -m "Update dependencies: GLM, LiteRT"
+            git push origin dependencies
+          else
+            echo "No changes to commit."
+          fi

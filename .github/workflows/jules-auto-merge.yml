@@ -1,0 +1,26 @@
+name: Jules Auto-Merge Branch
+
+on:
+  create:
+
+# Least-privilege default token; jobs needing more declare their own permissions block.
+permissions:
+  contents: read
+
+jobs:
+  jules-branch-manager:
+    if: github.event.ref_type == 'branch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Invoke Jules (Placeholder)
+        run: echo "Jules invocation placeholder. Configure correct action here."
