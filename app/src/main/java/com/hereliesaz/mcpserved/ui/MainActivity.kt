@@ -19,6 +19,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -40,7 +41,19 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContent { McpTheme { Root(vm) } }
+        setContent {
+            McpTheme {
+                // The disclosure gates everything. Until it is accepted there is no
+                // way through to the accessibility-settings shortcut, the pairing
+                // screen, or the arm control — the affirmative step comes first.
+                val consented by vm.hasConsented.collectAsState()
+                if (consented) {
+                    Root(vm)
+                } else {
+                    DisclosureScreen(onAccept = vm::grantConsent, onDecline = { finish() })
+                }
+            }
+        }
     }
 }
 

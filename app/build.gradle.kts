@@ -58,15 +58,6 @@ android {
     }
 }
 
-// Kotlin must target the same JVM bytecode level as Java (compileOptions above).
-// Without this the Kotlin task defaults higher than the Java task under the
-// upgraded toolchain, and the build fails on an inconsistent-JVM-target check.
-kotlin {
-    compilerOptions {
-        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_21)
-    }
-}
-
 dependencies {
     val composeBom = platform("androidx.compose:compose-bom:2024.12.01")
     implementation(composeBom)
