@@ -16,8 +16,10 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.hereliesaz.mcpserved.R
 
 /**
  * The prominent disclosure shown before anything else can happen.
@@ -42,50 +44,39 @@ fun DisclosureScreen(onAccept: () -> Unit, onDecline: () -> Unit) {
             .padding(24.dp),
         horizontalAlignment = Alignment.Start
     ) {
-        Text("Before you begin", style = MaterialTheme.typography.headlineMedium)
+        Text(
+            stringResource(R.string.disclosure_title),
+            style = MaterialTheme.typography.headlineMedium
+        )
 
         Spacer(Modifier.height(16.dp))
 
         Text(
-            "MCPserved lets a desktop client you pair with this device read the " +
-                "screen and perform taps, swipes, and text entry on your behalf, so " +
-                "that an assistant running on your own computer can operate the phone " +
-                "for you.",
+            stringResource(R.string.disclosure_intro),
             style = MaterialTheme.typography.bodyLarge
         )
 
         Spacer(Modifier.height(16.dp))
 
         Section(
-            "It uses the Accessibility Service",
-            "To read the screen and dispatch input it relies on Android's " +
-                "Accessibility Service. That is a powerful permission. This app uses " +
-                "it only to carry out the actions the paired client requests, and only " +
-                "for the applications you explicitly grant."
+            stringResource(R.string.disclosure_a11y_title),
+            stringResource(R.string.disclosure_a11y_body)
         )
 
         Section(
-            "It stays on your device",
-            "The client connects over a local connection you set up yourself with " +
-                "adb (USB, or adb-over-Wi-Fi). The app makes no connection to the " +
-                "internet and sends your screen contents to no server. Nothing is " +
-                "reachable from the network."
+            stringResource(R.string.disclosure_local_title),
+            stringResource(R.string.disclosure_local_body)
         )
 
         Section(
-            "You stay in control",
-            "Nothing can happen until you enable the service, pair a client, arm the " +
-                "app, and grant specific packages. Each session is time-limited and " +
-                "shown in an ongoing notification you can stop from at any moment, and " +
-                "every action is logged while a session is open. An empty grant list " +
-                "leaves the app unable to touch anything."
+            stringResource(R.string.disclosure_control_title),
+            stringResource(R.string.disclosure_control_body)
         )
 
         Spacer(Modifier.height(24.dp))
 
         Text(
-            "By continuing, you agree to let MCPserved use the Accessibility Service " +
-                "for this purpose.",
+            stringResource(R.string.disclosure_agree),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -93,7 +84,7 @@ fun DisclosureScreen(onAccept: () -> Unit, onDecline: () -> Unit) {
         Spacer(Modifier.height(16.dp))
 
         Button(onClick = onAccept, modifier = Modifier.fillMaxWidth()) {
-            Text("I understand and agree")
+            Text(stringResource(R.string.disclosure_accept))
         }
 
         Spacer(Modifier.height(8.dp))
@@ -102,7 +93,7 @@ fun DisclosureScreen(onAccept: () -> Unit, onDecline: () -> Unit) {
             onClick = onDecline,
             modifier = Modifier.fillMaxWidth()
         ) {
-            Text("Not now")
+            Text(stringResource(R.string.disclosure_decline))
         }
 
         Spacer(Modifier.height(8.dp))

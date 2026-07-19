@@ -1,13 +1,13 @@
 package com.hereliesaz.mcpserved.ui
 
 import android.app.Application
-import android.content.Context
 import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.provider.Settings
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.hereliesaz.mcpserved.crypto.Pairing
+import com.hereliesaz.mcpserved.grant.ConsentStore
 import com.hereliesaz.mcpserved.grant.Grant
 import com.hereliesaz.mcpserved.grant.GrantStore
 import com.hereliesaz.mcpserved.service.ControlService
@@ -30,7 +30,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     private val pairing = Pairing(app)
     private val store = GrantStore(app)
-    private val consentPrefs = app.getSharedPreferences("consent", Context.MODE_PRIVATE)
+    private val consent = ConsentStore(app)
 
     /**
      * Whether the prominent disclosure has been accepted.
@@ -39,12 +39,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
      * consent is uninstalling the app, which is the honest scope for a decision
      * this broad.
      */
-    private val _hasConsented = MutableStateFlow(consentPrefs.getBoolean(KEY_CONSENTED, false))
+    private val _hasConsented = MutableStateFlow(consent.isAccepted)
     val hasConsented: StateFlow<Boolean> = _hasConsented
 
     /** Records acceptance of the disclosure and lets the rest of the app open. */
     fun grantConsent() {
-        consentPrefs.edit().putBoolean(KEY_CONSENTED, true).apply()
+        consent.accept()
         _hasConsented.value = true
     }
 
@@ -176,9 +176,5 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         )
-    }
-
-    private companion object {
-        const val KEY_CONSENTED = "disclosure_accepted"
     }
 }
