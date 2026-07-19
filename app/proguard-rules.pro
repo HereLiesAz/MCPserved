@@ -1,8 +1,16 @@
-# Add project specific ProGuard rules here.
-# By default the flags in this file are appended to flags specified in
-# proguard-android-optimize.txt (consumed by AGP).
+# BouncyCastle reflects over provider classes at registration time.
+-keep class org.bouncycastle.** { *; }
+-dontwarn org.bouncycastle.**
 
-# Keep generated R class fields.
--keepclassmembers class **.R$* {
-    public static <fields>;
+# Shizuku is compileOnly and reached by reflection; the provider must survive.
+-keep class rikka.shizuku.** { *; }
+-dontwarn rikka.shizuku.**
+
+# kotlinx.serialization generates serializers referenced only by name.
+-keepattributes *Annotation*, InnerClasses
+-keepclassmembers class com.hereliesaz.mcpserved.** {
+    *** Companion;
+}
+-keepclasseswithmembers class com.hereliesaz.mcpserved.** {
+    kotlinx.serialization.KSerializer serializer(...);
 }

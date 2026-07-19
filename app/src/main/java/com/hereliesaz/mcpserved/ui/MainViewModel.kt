@@ -1,0 +1,162 @@
+package com.hereliesaz.mcpserved.ui
+
+import android.app.Application
+import android.content.Intent
+import android.content.pm.ApplicationInfo
+import android.provider.Settings
+import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
+import com.hereliesaz.mcpserved.crypto.Pairing
+import com.hereliesaz.mcpserved.grant.Grant
+import com.hereliesaz.mcpserved.grant.GrantStore
+import com.hereliesaz.mcpserved.service.ControlService
+import com.hereliesaz.mcpserved.service.McpAccessibilityService
+import com.hereliesaz.mcpserved.transport.Scope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+
+/**
+ * State for the whole application, which is small enough not to want more.
+ *
+ * Deliberately thin: everything durable lives in [GrantStore] and [Pairing], and
+ * everything live lives in [ControlService]. This exists to marshal between those
+ * and Compose, not to own anything.
+ */
+class MainViewModel(app: Application) : AndroidViewModel(app) {
+
+    private val pairing = Pairing(app)
+    private val store = GrantStore(app)
+
+    /** One installed application, with whatever grant it currently holds. */
+    data class AppRow(
+        val pkg: String,
+        val label: String,
+        val scopes: Set<Scope>,
+        val isSystem: Boolean
+    )
+
+    private val _apps = MutableStateFlow<List<AppRow>>(emptyList())
+    val apps: StateFlow<List<AppRow>> = _apps
+
+    private val _pairPayload = MutableStateFlow(pairing.currentPayload().encode())
+    val pairPayload: StateFlow<String> = _pairPayload
+
+    private val _isPaired = MutableStateFlow(pairing.isPaired)
+    val isPaired: StateFlow<Boolean> = _isPaired
+
+    /** True when the accessibility service is bound. Nothing works without it. */
+    val a11yConnected: Boolean get() = McpAccessibilityService.instance != null
+
+    val serviceRunning: Boolean get() = ControlService.instance != null
+
+    init {
+        refreshApps()
+    }
+
+    /**
+     * Loads installed applications, launchable ones first.
+     *
+     * System packages are included but marked. Excluding them would hide the
+     * settings and dialer apps, which are occasionally the legitimate target and
+     * are always the ones worth thinking twice about — better visible and
+     * labelled than quietly missing.
+     */
+    fun refreshApps() = viewModelScope.launch {
+        val pm = getApplication<Application>().packageManager
+        val granted = store.current().associateBy { it.pkg }
+
+        // getInstalledApplications is a blocking binder call that can be slow and,
+        // on devices with many apps, throw TransactionTooLargeException. viewModelScope
+        // runs on Dispatchers.Main, so the whole enumeration is moved to IO.
+        _apps.value = withContext(Dispatchers.IO) {
+            pm.getInstalledApplications(0)
+                .filter { pm.getLaunchIntentForPackage(it.packageName) != null }
+                .map { info ->
+                    AppRow(
+                        pkg = info.packageName,
+                        label = pm.getApplicationLabel(info).toString(),
+                        scopes = granted[info.packageName]?.scopes ?: emptySet(),
+                        isSystem = (info.flags and ApplicationInfo.FLAG_SYSTEM) != 0
+                    )
+                }
+                .sortedWith(compareBy({ it.scopes.isEmpty() }, { it.label.lowercase() }))
+        }
+    }
+
+    /**
+     * Sets the scope set for a package.
+     *
+     * An empty set revokes rather than storing a grant that permits nothing.
+     * A grant row conferring no authority would appear in the list and read as
+     * permission where there is none.
+     */
+    fun setScopes(pkg: String, scopes: Set<Scope>, ttlSec: Int?) = viewModelScope.launch {
+        if (scopes.isEmpty()) {
+            store.revoke(pkg)
+        } else {
+            store.put(
+                Grant(
+                    pkg = pkg,
+                    scopes = scopes,
+                    expiresAtEpochMs = ttlSec?.let { System.currentTimeMillis() + it * 1000L }
+                )
+            )
+        }
+        refreshApps()
+    }
+
+    fun revokeAll() = viewModelScope.launch {
+        store.revokeAll()
+        refreshApps()
+    }
+
+    /** Completes pairing from a scanned reply payload. */
+    fun completePairing(scanned: String): Boolean {
+        val payload = Pairing.QrPayload.decode(scanned) ?: return false
+        val ok = pairing.completePairing(payload.devicePublicKey)
+        _isPaired.value = pairing.isPaired
+        return ok
+    }
+
+    /**
+     * Discards the identity and mints a new one.
+     *
+     * The only complete revocation. Emptying the grant table stops the peer from
+     * doing anything; rotating the key stops it from arriving at all.
+     */
+    fun rotateIdentity() {
+        _pairPayload.value = pairing.rotateIdentity().encode()
+        _isPaired.value = false
+    }
+
+    fun startService() {
+        val ctx = getApplication<Application>()
+        ctx.startForegroundService(Intent(ctx, ControlService::class.java))
+    }
+
+    fun stopService() {
+        val ctx = getApplication<Application>()
+        ctx.startService(
+            Intent(ctx, ControlService::class.java).setAction(ControlService.ACTION_DISARM)
+        )
+    }
+
+    fun openAccessibilitySettings() {
+        val ctx = getApplication<Application>()
+        ctx.startActivity(
+            Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        )
+    }
+
+    fun openNotificationSettings() {
+        val ctx = getApplication<Application>()
+        ctx.startActivity(
+            Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        )
+    }
+}
