@@ -12,31 +12,33 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 
 /**
- * Monochrome throughout, and dark regardless of system setting.
+ * Warm, dark, and dark regardless of system setting.
  *
- * Colour is reserved for one thing: the denial marker in the session log. An
- * interface with no other colour in it makes a single red line unmissable, which
- * is the point — the log exists to be scanned quickly for the entry that should
- * not be there.
+ * The palette is the product's own: a plum-black ground and warm off-white text,
+ * with a single amber accent carried by the primary role — filled actions and
+ * the "ready" markers. Restraint is still the rule; there is one accent, not a
+ * spectrum. The denial red keeps the one meaning it always had — the refused
+ * action in the session log — and stays the only red in the app, so a single red
+ * line remains unmissable against everything around it.
  *
  * Light mode is not offered. This is an application whose resting state is a
  * persistent notification saying something has authority over your phone; it
- * should not look cheerful.
+ * should read as serious, not cheerful.
  */
 private val Scheme = darkColorScheme(
-    primary = Color(0xFFE8E8E8),
-    onPrimary = Color(0xFF000000),
-    secondary = Color(0xFF9A9A9A),
-    onSecondary = Color(0xFF000000),
-    background = Color(0xFF000000),
-    onBackground = Color(0xFFE8E8E8),
-    surface = Color(0xFF0A0A0A),
-    onSurface = Color(0xFFE8E8E8),
-    surfaceVariant = Color(0xFF161616),
-    onSurfaceVariant = Color(0xFF8A8A8A),
-    outline = Color(0xFF2A2A2A),
+    primary = Color(0xFFE9A24A),
+    onPrimary = Color(0xFF241019),
+    secondary = Color(0xFFC06A3A),
+    onSecondary = Color(0xFF241019),
+    background = Color(0xFF191016),
+    onBackground = Color(0xFFEDE4E8),
+    surface = Color(0xFF221520),
+    onSurface = Color(0xFFEDE4E8),
+    surfaceVariant = Color(0xFF2B1B28),
+    onSurfaceVariant = Color(0xFFA08A97),
+    outline = Color(0xFF3A2833),
     error = Color(0xFFB3261E),
-    onError = Color(0xFFE8E8E8)
+    onError = Color(0xFFEDE4E8)
 )
 
 /** Denial marker. The only colour in the application. */
