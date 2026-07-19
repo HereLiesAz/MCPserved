@@ -1,0 +1,131 @@
+{
+  "idea": {
+    "eyebrow": "The idea",
+    "h2": "Authority comes from the device. Never the network.",
+    "p": "The phone decides — nothing else. A model, a script, an assistant on your laptop: each gets in only through a connection you opened, and touches only what you allowed.",
+    "cells": [
+      { "k": "Local", "h": "It never phones home", "p": "Control rides a USB cable or an adb-over-Wi-Fi session you started. No internet. No server. Your screen stays between the two machines." },
+      { "k": "Authorized", "h": "Dead until you say go", "p": "An empty grant table can't touch a thing. No denylist to keep current — only what you switched on." },
+      { "k": "Transparent", "h": "You watch it work", "p": "Every session is timed, pinned to an ongoing notification with a stop button, and logged action by action." },
+      { "k": "Revocable", "h": "Two ways to kill it", "p": "Empty the grants and it can't act. Rotate the key and it can't connect. Uninstall and it's gone." }
+    ]
+  },
+  "backends": {
+    "eyebrow": "Two backends, one interface",
+    "h2": "Start with adb. Upgrade to the app.",
+    "p": "Same tools either way — the model can't tell them apart. The app just gives the phone more to say back.",
+    "panels": [
+      {
+        "feature": false,
+        "tag": "Default · quick connect",
+        "name": "adb",
+        "sub": "No app. Any phone with USB debugging or adb-over-Wi-Fi.",
+        "items": [
+          "<span>Gestures &amp; keys —</span> input",
+          "<span>UI tree —</span> uiautomator dump",
+          "<span>Screenshots —</span> screencap",
+          "<span>A full shell, device-wide — exactly what USB debugging grants</span>"
+        ],
+        "foot": "no per-app grants · no clipboard · no notification list"
+      },
+      {
+        "feature": true,
+        "tag": "Upgrade · paired app",
+        "name": "on-device app",
+        "sub": "Tunnels to the app's loopback server over an <span class=\"inline-code\">adb forward</span> it opens itself.",
+        "items": [
+          "Accessibility backend — semantic tree, real text entry",
+          "Per-package grants, scoped and expiring",
+          "Timed sessions with an ongoing notification",
+          "Clipboard and notification mirror"
+        ],
+        "foot": "sealed frames · loopback only · falls back to adb"
+      }
+    ]
+  },
+  "layers": {
+    "eyebrow": "Control layers",
+    "h2": "Backends aren't tiers.",
+    "p": "Root isn't always better — <span class=\"inline-code\">su -c input tap</span> forks a process per gesture and trails the accessibility path. But root is the only screenshot with no capture dialog. The resolver picks per operation.",
+    "head": ["Operation", "Preferred", "Fallback"],
+    "rows": [
+      ["ui_tree · scroll", "Accessibility", "—"],
+      ["gestures · text · keys", "Accessibility", "root, Shizuku"],
+      ["screenshot", "root screencap", "MediaProjection"],
+      ["launch · shell", "root", "Shizuku"]
+    ]
+  },
+  "scopes": {
+    "eyebrow": "Authorization",
+    "h2": "Per package. Per scope. Revocable. Expiring by default.",
+    "p": "Grants live in the app. The pure-adb path has none — adb is device-wide shell power, stated plainly, not dressed down.",
+    "head": ["Scope", "Permits"],
+    "rows": [
+      ["OBSERVE", "read the screen and notifications"],
+      ["INTERACT", "tap, swipe, scroll, press keys"],
+      ["TYPE", "type text, set the clipboard"],
+      ["LAUNCH", "bring an app to the front"],
+      ["SHELL", "run shell commands, while the app is open"]
+    ]
+  },
+  "security": {
+    "eyebrow": "Security model",
+    "h2": "Local. And still sealed.",
+    "p": "Loopback isn't a wall — any app on the phone can dial a local port. The pairing key decides who gets an answer.",
+    "cells": [
+      { "k": "Pairing", "h": "X25519, out of band", "p": "Both public keys go by QR, both directions. Nothing sits in the handshake. Keys stay encrypted on the device and never leave it." },
+      { "k": "Frames", "h": "ChaCha20-Poly1305", "p": "Every message is sealed and authenticated. A frame that won't open gets no reply — not even a hint the device is there." },
+      { "k": "Per connection", "h": "Fresh keys every time", "p": "A random salt in the hello derives new keys per connection. Relaunch the client; no nonce ever repeats." },
+      { "k": "Reach", "h": "127.0.0.1, full stop", "p": "The channel binds to IPv4 loopback and dials nothing out. Reachable only through an adb-forward tunnel you set up." }
+    ]
+  },
+  "setup": {
+    "eyebrow": "Setup",
+    "h2": "Plugged in to acting, in four.",
+    "steps": [
+      { "h": "Reach it with adb", "html": "USB debugging on and plugged in — or <code>adb connect &lt;ip&gt;:5555</code> over the network. Check with <code>adb devices</code>." },
+      { "h": "Point your host at the server", "html": "Run <code>mcpserved</code>. Unpaired, it drives the phone straight over adb. Ready now." },
+      { "h": "Optional: pair the app", "html": "Want accessibility, grants, and the notification mirror? Install the app, run <code>mcpserved pair</code>, and scan both ways." },
+      { "h": "Arm, grant, go", "html": "Accept the disclosure, enable the service, arm it, and grant the packages you want reachable. The server upgrades to the app on its own." }
+    ]
+  },
+  "constraints": {
+    "eyebrow": "Honest constraints",
+    "h2": "What it won't fake.",
+    "notes": [
+      { "h": "The screen stays on in an app session", "p": "Lock the device and the node tree empties. Keep sessions short." },
+      { "h": "Shizuku dies on reboot", "p": "No root means a manual re-pair after every restart." },
+      { "h": "adb text is ASCII-ish", "p": "Spaces work; newlines and most non-ASCII don't. The app handles the rest." },
+      { "h": "adb has no clipboard or notifications", "p": "Those need the paired app." },
+      { "h": "iOS is out", "p": "No third-party iOS app can automate another. Apple's rule, not ours." },
+      { "h": "Play still wants disclosure", "p": "The relay's gone, but accessibility use is declared — with a prominent in-app notice." }
+    ]
+  },
+  "data": {
+    "eyebrow": "Data safety",
+    "h2": "Nothing collected. Nowhere to send it.",
+    "cells": [
+      { "big": "0", "lbl": "Analytics or accounts" },
+      { "big": "0", "lbl": "Outbound connections" },
+      { "big": "On-device", "lbl": "Keys, encrypted" },
+      { "big": "Loopback", "lbl": "The only listener" }
+    ]
+  },
+  "docs": {
+    "eyebrow": "Documentation",
+    "h2": "Read the details.",
+    "p": "The full reference — architecture, backends, the security model, the wire protocol, the tool surface, and troubleshooting.",
+    "base": "https://github.com/HereLiesAz/MCPserved/blob/main/docs/guide/",
+    "links": [
+      { "title": "Overview", "file": "overview.md", "desc": "What it is and how the pieces fit." },
+      { "title": "Quickstart", "file": "quickstart.md", "desc": "From plugged-in to acting." },
+      { "title": "Desktop server", "file": "desktop-server.md", "desc": "Install, run, modes, and env vars." },
+      { "title": "Android app", "file": "android-app.md", "desc": "Service, disclosure, grants, sessions." },
+      { "title": "Backends", "file": "backends.md", "desc": "Accessibility, root, Shizuku, adb." },
+      { "title": "MCP tools", "file": "mcp-tools.md", "desc": "The tool surface the model sees." },
+      { "title": "Security", "file": "security.md", "desc": "Pairing, sealed frames, loopback." },
+      { "title": "Protocol", "file": "protocol.md", "desc": "The wire format, field by field." },
+      { "title": "Troubleshooting", "file": "troubleshooting.md", "desc": "Common issues and fixes." }
+    ]
+  }
+}

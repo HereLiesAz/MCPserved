@@ -186,6 +186,13 @@
   .safety .big { font-family: var(--sans); font-size: 1.9rem; font-weight: 800; letter-spacing: -0.03em; line-height: 1; margin-bottom: 0.5rem; }
   .safety .lbl { font-family: var(--mono); font-size: 0.74rem; letter-spacing: 0.13em; text-transform: uppercase; color: var(--muted); }
 
+  .doclinks { display: grid; grid-template-columns: repeat(auto-fill, minmax(258px, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+  .doclink { background: var(--bg); padding: 1.4rem 1.4rem; display: flex; flex-direction: column; gap: 0.35rem; transition: background 0.2s ease; }
+  .doclink:hover { background: var(--surface); }
+  .doclink .dt { font-family: var(--sans); font-weight: 700; font-size: 1.05rem; letter-spacing: -0.01em; }
+  .doclink .dt .ar { color: var(--accent); }
+  .doclink .dd { color: var(--muted); font-size: 0.92rem; }
+
   footer { border-top: 1px solid var(--line); padding-block: clamp(3rem, 6vw, 5rem); position: relative; overflow: hidden; }
   .foot-grid { display: flex; flex-wrap: wrap; gap: 2rem; justify-content: space-between; align-items: flex-end; }
   .foot-mark { font-family: var(--sans); font-weight: 800; font-size: clamp(2.4rem, 7vw, 4.5rem); letter-spacing: -0.04em; line-height: 0.9; }
@@ -260,188 +267,15 @@ mcpserved <span class="p">pair</span>
     </div>
   </section>
 
-  <section id="idea">
-    <span class="ghost" aria-hidden="true" style="left: -5vw; top: 1.5rem;" data-px="0.26">AUTHORIZED</span>
-    <div class="wrap">
-      <div class="sec-head">
-        <p class="eyebrow" data-px="0.05">The idea</p>
-        <h2 data-px="0.02">Authority comes from the device. Never the network.</h2>
-        <p data-px="0.08">
-          The phone decides — nothing else. A model, a script, an assistant on your
-          laptop: each gets in only through a connection you opened, and touches only
-          what you allowed.
-        </p>
-      </div>
-      <div class="grid-4" data-px="0.03">
-        <div class="cell"><span class="k">Local</span><h3>It never phones home</h3><p>Control rides a USB cable or an adb-over-Wi-Fi session you started. No internet. No server. Your screen stays between the two machines.</p></div>
-        <div class="cell"><span class="k">Authorized</span><h3>Dead until you say go</h3><p>An empty grant table can't touch a thing. No denylist to keep current — only what you switched on.</p></div>
-        <div class="cell"><span class="k">Transparent</span><h3>You watch it work</h3><p>Every session is timed, pinned to an ongoing notification with a stop button, and logged action by action.</p></div>
-        <div class="cell"><span class="k">Revocable</span><h3>Two ways to kill it</h3><p>Empty the grants and it can't act. Rotate the key and it can't connect. Uninstall and it's gone.</p></div>
-      </div>
-    </div>
-  </section>
-
-  <section id="backends">
-    <span class="ghost mono accent" aria-hidden="true" style="right: -3vw; top: -1rem;" data-px="0.28">adb</span>
-    <div class="wrap">
-      <div class="sec-head">
-        <p class="eyebrow" data-px="0.05">Two backends, one interface</p>
-        <h2 data-px="0.02">Start with adb. Upgrade to the app.</h2>
-        <p data-px="0.08">
-          Same tools either way — the model can't tell them apart. The app just gives
-          the phone more to say back.
-        </p>
-      </div>
-      <div class="split" data-px="0.03">
-        <div class="panel">
-          <div class="tag">Default · quick connect</div>
-          <h3>adb</h3>
-          <p class="sub">No app. Any phone with USB debugging or adb-over-Wi-Fi.</p>
-          <ul>
-            <li><span>Gestures &amp; keys —</span> input</li>
-            <li><span>UI tree —</span> uiautomator dump</li>
-            <li><span>Screenshots —</span> screencap</li>
-            <li><span>A full shell, device-wide — exactly what USB debugging grants</span></li>
-          </ul>
-          <div class="foot">no per-app grants · no clipboard · no notification list</div>
-        </div>
-        <div class="panel feature">
-          <div class="tag">Upgrade · paired app</div>
-          <h3>on-device app</h3>
-          <p class="sub">Tunnels to the app's loopback server over an <span class="inline-code">adb forward</span> it opens itself.</p>
-          <ul>
-            <li>Accessibility backend — semantic tree, real text entry</li>
-            <li>Per-package grants, scoped and expiring</li>
-            <li>Timed sessions with an ongoing notification</li>
-            <li>Clipboard and notification mirror</li>
-          </ul>
-          <div class="foot">sealed frames · loopback only · falls back to adb</div>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <section id="layers">
-    <span class="ghost" aria-hidden="true" style="left: -4vw; bottom: -2rem;" data-px="0.22">RESOLVE</span>
-    <div class="wrap">
-      <div class="sec-head">
-        <p class="eyebrow" data-px="0.05">Control layers</p>
-        <h2 data-px="0.02">Backends aren't tiers.</h2>
-        <p data-px="0.08">
-          Root isn't always better — <span class="inline-code">su -c input tap</span> forks a process per gesture and
-          trails the accessibility path. But root is the only screenshot with no
-          capture dialog. The resolver picks per operation.
-        </p>
-      </div>
-      <div class="table-scroll" data-px="0.03">
-        <table>
-          <thead><tr><th>Operation</th><th>Preferred</th><th>Fallback</th></tr></thead>
-          <tbody>
-            <tr><td class="op">ui_tree · scroll</td><td>Accessibility</td><td class="dash">—</td></tr>
-            <tr><td class="op">gestures · text · keys</td><td>Accessibility</td><td>root, Shizuku</td></tr>
-            <tr><td class="op">screenshot</td><td>root screencap</td><td>MediaProjection</td></tr>
-            <tr><td class="op">launch · shell</td><td>root</td><td>Shizuku</td></tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
-  </section>
-
-  <section id="grants">
-    <span class="ghost" aria-hidden="true" style="right: -3vw; top: 0.5rem;" data-px="0.24">GRANT</span>
-    <div class="wrap">
-      <div class="sec-head">
-        <p class="eyebrow" data-px="0.05">Authorization</p>
-        <h2 data-px="0.02">Per package. Per scope. Revocable. Expiring by default.</h2>
-        <p data-px="0.08">
-          Grants live in the app. The pure-adb path has none — adb is device-wide
-          shell power, stated plainly, not dressed down.
-        </p>
-      </div>
-      <div class="table-scroll" data-px="0.03">
-        <table>
-          <thead><tr><th>Scope</th><th>Permits</th></tr></thead>
-          <tbody>
-            <tr><td><span class="scope">OBSERVE</span></td><td>read the screen and notifications</td></tr>
-            <tr><td><span class="scope">INTERACT</span></td><td>tap, swipe, scroll, press keys</td></tr>
-            <tr><td><span class="scope">TYPE</span></td><td>type text, set the clipboard</td></tr>
-            <tr><td><span class="scope">LAUNCH</span></td><td>bring an app to the front</td></tr>
-            <tr><td><span class="scope">SHELL</span></td><td>run shell commands, while the app is open</td></tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
-  </section>
-
-  <section id="security">
-    <span class="ghost mono accent" aria-hidden="true" style="left: -4vw; top: 1rem;" data-px="0.26">X25519</span>
-    <div class="wrap">
-      <div class="sec-head">
-        <p class="eyebrow" data-px="0.05">Security model</p>
-        <h2 data-px="0.02">Local. And still sealed.</h2>
-        <p data-px="0.08">
-          Loopback isn't a wall — any app on the phone can dial a local port. The
-          pairing key decides who gets an answer.
-        </p>
-      </div>
-      <div class="grid-4" data-px="0.03">
-        <div class="cell"><span class="k">Pairing</span><h3>X25519, out of band</h3><p>Both public keys go by QR, both directions. Nothing sits in the handshake. Keys stay encrypted on the device and never leave it.</p></div>
-        <div class="cell"><span class="k">Frames</span><h3>ChaCha20-Poly1305</h3><p>Every message is sealed and authenticated. A frame that won't open gets no reply — not even a hint the device is there.</p></div>
-        <div class="cell"><span class="k">Per connection</span><h3>Fresh keys every time</h3><p>A random salt in the hello derives new keys per connection. Relaunch the client; no nonce ever repeats.</p></div>
-        <div class="cell"><span class="k">Reach</span><h3>127.0.0.1, full stop</h3><p>The channel binds to IPv4 loopback and dials nothing out. Reachable only through an adb-forward tunnel you set up.</p></div>
-      </div>
-    </div>
-  </section>
-
-  <section id="setup">
-    <span class="ghost" aria-hidden="true" style="right: -2vw; bottom: -2rem;" data-px="0.2">ARM</span>
-    <div class="wrap">
-      <div class="sec-head">
-        <p class="eyebrow" data-px="0.05">Setup</p>
-        <h2 data-px="0.02">Plugged in to acting, in four.</h2>
-      </div>
-      <div class="steps" data-px="0.03">
-        <div class="step"><div class="num">1</div><div><h3>Reach it with adb</h3><p>USB debugging on and plugged in — or <code>adb connect &lt;ip&gt;:5555</code> over the network. Check with <code>adb devices</code>.</p></div></div>
-        <div class="step"><div class="num">2</div><div><h3>Point your host at the server</h3><p>Run <code>mcpserved</code>. Unpaired, it drives the phone straight over adb. Ready now.</p></div></div>
-        <div class="step"><div class="num">3</div><div><h3>Optional: pair the app</h3><p>Want accessibility, grants, and the notification mirror? Install the app, run <code>mcpserved pair</code>, and scan both ways.</p></div></div>
-        <div class="step"><div class="num">4</div><div><h3>Arm, grant, go</h3><p>Accept the disclosure, enable the service, arm it, and grant the packages you want reachable. The server upgrades to the app on its own.</p></div></div>
-      </div>
-    </div>
-  </section>
-
-  <section id="honest">
-    <span class="ghost" aria-hidden="true" style="left: -4vw; top: 1rem;" data-px="0.22">CAVEATS</span>
-    <div class="wrap">
-      <div class="sec-head">
-        <p class="eyebrow" data-px="0.05">Honest constraints</p>
-        <h2 data-px="0.02">What it won't fake.</h2>
-      </div>
-      <div class="notes" data-px="0.03">
-        <div class="note"><h4>The screen stays on in an app session</h4><p>Lock the device and the node tree empties. Keep sessions short.</p></div>
-        <div class="note"><h4>Shizuku dies on reboot</h4><p>No root means a manual re-pair after every restart.</p></div>
-        <div class="note"><h4>adb text is ASCII-ish</h4><p>Spaces work; newlines and most non-ASCII don't. The app handles the rest.</p></div>
-        <div class="note"><h4>adb has no clipboard or notifications</h4><p>Those need the paired app.</p></div>
-        <div class="note"><h4>iOS is out</h4><p>No third-party iOS app can automate another. Apple's rule, not ours.</p></div>
-        <div class="note"><h4>Play still wants disclosure</h4><p>The relay's gone, but accessibility use is declared — with a prominent in-app notice.</p></div>
-      </div>
-    </div>
-  </section>
-
-  <section id="data">
-    <span class="ghost accent" aria-hidden="true" style="right: -1vw; top: -3rem;" data-px="0.2">NONE</span>
-    <div class="wrap">
-      <div class="sec-head">
-        <p class="eyebrow" data-px="0.05">Data safety</p>
-        <h2 data-px="0.02">Nothing collected. Nowhere to send it.</h2>
-      </div>
-      <div class="safety" data-px="0.03">
-        <div><div class="big">0</div><div class="lbl">Analytics or accounts</div></div>
-        <div><div class="big">0</div><div class="lbl">Outbound connections</div></div>
-        <div><div class="big">On-device</div><div class="lbl">Keys, encrypted</div></div>
-        <div><div class="big">Loopback</div><div class="lbl">The only listener</div></div>
-      </div>
-    </div>
-  </section>
+  <section id="idea"></section>
+  <section id="backends"></section>
+  <section id="layers"></section>
+  <section id="grants"></section>
+  <section id="security"></section>
+  <section id="setup"></section>
+  <section id="honest"></section>
+  <section id="data"></section>
+  <section id="docs"></section>
 </main>
 
 <footer>
@@ -467,105 +301,318 @@ mcpserved <span class="p">pair</span>
   </div>
 </footer>
 
+  <script type="application/json" id="site-content">
+{
+  "idea": {
+    "eyebrow": "The idea",
+    "h2": "Authority comes from the device. Never the network.",
+    "p": "The phone decides — nothing else. A model, a script, an assistant on your laptop: each gets in only through a connection you opened, and touches only what you allowed.",
+    "cells": [
+      { "k": "Local", "h": "It never phones home", "p": "Control rides a USB cable or an adb-over-Wi-Fi session you started. No internet. No server. Your screen stays between the two machines." },
+      { "k": "Authorized", "h": "Dead until you say go", "p": "An empty grant table can't touch a thing. No denylist to keep current — only what you switched on." },
+      { "k": "Transparent", "h": "You watch it work", "p": "Every session is timed, pinned to an ongoing notification with a stop button, and logged action by action." },
+      { "k": "Revocable", "h": "Two ways to kill it", "p": "Empty the grants and it can't act. Rotate the key and it can't connect. Uninstall and it's gone." }
+    ]
+  },
+  "backends": {
+    "eyebrow": "Two backends, one interface",
+    "h2": "Start with adb. Upgrade to the app.",
+    "p": "Same tools either way — the model can't tell them apart. The app just gives the phone more to say back.",
+    "panels": [
+      {
+        "feature": false,
+        "tag": "Default · quick connect",
+        "name": "adb",
+        "sub": "No app. Any phone with USB debugging or adb-over-Wi-Fi.",
+        "items": [
+          "<span>Gestures &amp; keys —</span> input",
+          "<span>UI tree —</span> uiautomator dump",
+          "<span>Screenshots —</span> screencap",
+          "<span>A full shell, device-wide — exactly what USB debugging grants</span>"
+        ],
+        "foot": "no per-app grants · no clipboard · no notification list"
+      },
+      {
+        "feature": true,
+        "tag": "Upgrade · paired app",
+        "name": "on-device app",
+        "sub": "Tunnels to the app's loopback server over an <span class=\"inline-code\">adb forward</span> it opens itself.",
+        "items": [
+          "Accessibility backend — semantic tree, real text entry",
+          "Per-package grants, scoped and expiring",
+          "Timed sessions with an ongoing notification",
+          "Clipboard and notification mirror"
+        ],
+        "foot": "sealed frames · loopback only · falls back to adb"
+      }
+    ]
+  },
+  "layers": {
+    "eyebrow": "Control layers",
+    "h2": "Backends aren't tiers.",
+    "p": "Root isn't always better — <span class=\"inline-code\">su -c input tap</span> forks a process per gesture and trails the accessibility path. But root is the only screenshot with no capture dialog. The resolver picks per operation.",
+    "head": ["Operation", "Preferred", "Fallback"],
+    "rows": [
+      ["ui_tree · scroll", "Accessibility", "—"],
+      ["gestures · text · keys", "Accessibility", "root, Shizuku"],
+      ["screenshot", "root screencap", "MediaProjection"],
+      ["launch · shell", "root", "Shizuku"]
+    ]
+  },
+  "scopes": {
+    "eyebrow": "Authorization",
+    "h2": "Per package. Per scope. Revocable. Expiring by default.",
+    "p": "Grants live in the app. The pure-adb path has none — adb is device-wide shell power, stated plainly, not dressed down.",
+    "head": ["Scope", "Permits"],
+    "rows": [
+      ["OBSERVE", "read the screen and notifications"],
+      ["INTERACT", "tap, swipe, scroll, press keys"],
+      ["TYPE", "type text, set the clipboard"],
+      ["LAUNCH", "bring an app to the front"],
+      ["SHELL", "run shell commands, while the app is open"]
+    ]
+  },
+  "security": {
+    "eyebrow": "Security model",
+    "h2": "Local. And still sealed.",
+    "p": "Loopback isn't a wall — any app on the phone can dial a local port. The pairing key decides who gets an answer.",
+    "cells": [
+      { "k": "Pairing", "h": "X25519, out of band", "p": "Both public keys go by QR, both directions. Nothing sits in the handshake. Keys stay encrypted on the device and never leave it." },
+      { "k": "Frames", "h": "ChaCha20-Poly1305", "p": "Every message is sealed and authenticated. A frame that won't open gets no reply — not even a hint the device is there." },
+      { "k": "Per connection", "h": "Fresh keys every time", "p": "A random salt in the hello derives new keys per connection. Relaunch the client; no nonce ever repeats." },
+      { "k": "Reach", "h": "127.0.0.1, full stop", "p": "The channel binds to IPv4 loopback and dials nothing out. Reachable only through an adb-forward tunnel you set up." }
+    ]
+  },
+  "setup": {
+    "eyebrow": "Setup",
+    "h2": "Plugged in to acting, in four.",
+    "steps": [
+      { "h": "Reach it with adb", "html": "USB debugging on and plugged in — or <code>adb connect &lt;ip&gt;:5555</code> over the network. Check with <code>adb devices</code>." },
+      { "h": "Point your host at the server", "html": "Run <code>mcpserved</code>. Unpaired, it drives the phone straight over adb. Ready now." },
+      { "h": "Optional: pair the app", "html": "Want accessibility, grants, and the notification mirror? Install the app, run <code>mcpserved pair</code>, and scan both ways." },
+      { "h": "Arm, grant, go", "html": "Accept the disclosure, enable the service, arm it, and grant the packages you want reachable. The server upgrades to the app on its own." }
+    ]
+  },
+  "constraints": {
+    "eyebrow": "Honest constraints",
+    "h2": "What it won't fake.",
+    "notes": [
+      { "h": "The screen stays on in an app session", "p": "Lock the device and the node tree empties. Keep sessions short." },
+      { "h": "Shizuku dies on reboot", "p": "No root means a manual re-pair after every restart." },
+      { "h": "adb text is ASCII-ish", "p": "Spaces work; newlines and most non-ASCII don't. The app handles the rest." },
+      { "h": "adb has no clipboard or notifications", "p": "Those need the paired app." },
+      { "h": "iOS is out", "p": "No third-party iOS app can automate another. Apple's rule, not ours." },
+      { "h": "Play still wants disclosure", "p": "The relay's gone, but accessibility use is declared — with a prominent in-app notice." }
+    ]
+  },
+  "data": {
+    "eyebrow": "Data safety",
+    "h2": "Nothing collected. Nowhere to send it.",
+    "cells": [
+      { "big": "0", "lbl": "Analytics or accounts" },
+      { "big": "0", "lbl": "Outbound connections" },
+      { "big": "On-device", "lbl": "Keys, encrypted" },
+      { "big": "Loopback", "lbl": "The only listener" }
+    ]
+  },
+  "docs": {
+    "eyebrow": "Documentation",
+    "h2": "Read the details.",
+    "p": "The full reference — architecture, backends, the security model, the wire protocol, the tool surface, and troubleshooting.",
+    "base": "https://github.com/HereLiesAz/MCPserved/blob/main/docs/guide/",
+    "links": [
+      { "title": "Overview", "file": "overview.md", "desc": "What it is and how the pieces fit." },
+      { "title": "Quickstart", "file": "quickstart.md", "desc": "From plugged-in to acting." },
+      { "title": "Desktop server", "file": "desktop-server.md", "desc": "Install, run, modes, and env vars." },
+      { "title": "Android app", "file": "android-app.md", "desc": "Service, disclosure, grants, sessions." },
+      { "title": "Backends", "file": "backends.md", "desc": "Accessibility, root, Shizuku, adb." },
+      { "title": "MCP tools", "file": "mcp-tools.md", "desc": "The tool surface the model sees." },
+      { "title": "Security", "file": "security.md", "desc": "Pairing, sealed frames, loopback." },
+      { "title": "Protocol", "file": "protocol.md", "desc": "The wire format, field by field." },
+      { "title": "Troubleshooting", "file": "troubleshooting.md", "desc": "Common issues and fixes." }
+    ]
+  }
+}
+  </script>
 <script>
-  var bar = document.getElementById("bar");
-  var onScrollBar = function () { bar.classList.toggle("stuck", window.scrollY > 8); };
-  onScrollBar();
+  (function () {
+    var $ = function (id) { return document.getElementById(id); };
+    var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-  document.querySelectorAll(".copy").forEach(function (btn) {
-    btn.addEventListener("click", function () {
-      var text = btn.getAttribute("data-copy") || "";
-      var done = function () {
-        var prev = btn.textContent;
-        btn.textContent = "Copied"; btn.classList.add("done");
-        setTimeout(function () { btn.textContent = prev; btn.classList.remove("done"); }, 1400);
-      };
-      // execCommand fallback for insecure contexts / older browsers; only flips to
-      // "Copied" on a real success, never on a rejected promise.
-      var fallback = function () {
-        try {
-          var ta = document.createElement("textarea");
-          ta.value = text; ta.setAttribute("readonly", "");
-          ta.style.position = "fixed"; ta.style.top = "0"; ta.style.opacity = "0"; ta.style.pointerEvents = "none";
-          document.body.appendChild(ta); ta.select();
-          var ok = document.execCommand("copy");
-          document.body.removeChild(ta);
-          if (ok) done();
-        } catch (e) { /* clipboard unavailable; leave the label unchanged */ }
-      };
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(text).then(done, fallback);
-      } else { fallback(); }
+    // Decorative parallax words per section (design, not content).
+    var GHOSTS = {
+      idea:     { w: "AUTHORIZED", c: "ghost",             s: "left:-5vw;top:1.5rem;",    px: 0.26 },
+      backends: { w: "adb",        c: "ghost mono accent",  s: "right:-3vw;top:-1rem;",    px: 0.28 },
+      layers:   { w: "RESOLVE",    c: "ghost",              s: "left:-4vw;bottom:-2rem;",  px: 0.22 },
+      grants:   { w: "GRANT",      c: "ghost",              s: "right:-3vw;top:0.5rem;",   px: 0.24 },
+      security: { w: "X25519",     c: "ghost mono accent",  s: "left:-4vw;top:1rem;",      px: 0.26 },
+      setup:    { w: "ARM",        c: "ghost",              s: "right:-2vw;bottom:-2rem;", px: 0.2 },
+      honest:   { w: "CAVEATS",    c: "ghost",              s: "left:-4vw;top:1rem;",      px: 0.22 },
+      data:     { w: "NONE",       c: "ghost accent",       s: "right:-1vw;top:-3rem;",    px: 0.2 },
+      docs:     { w: "DOCS",       c: "ghost",              s: "left:-3vw;top:1rem;",      px: 0.24 }
+    };
+    function ghost(id) {
+      var g = GHOSTS[id];
+      return g ? '<span class="' + g.c + '" aria-hidden="true" style="' + g.s + '" data-px="' + g.px + '">' + g.w + '</span>' : "";
+    }
+    function head(c) {
+      return '<div class="sec-head"><p class="eyebrow" data-px="0.05">' + c.eyebrow + '</p>' +
+        '<h2 data-px="0.02">' + c.h2 + '</h2>' + (c.p ? '<p data-px="0.08">' + c.p + '</p>' : "") + '</div>';
+    }
+    function cellsGrid(c) {
+      return '<div class="grid-4" data-px="0.03">' + c.cells.map(function (x) {
+        return '<div class="cell"><span class="k">' + x.k + '</span><h3>' + x.h + '</h3><p>' + x.p + '</p></div>';
+      }).join("") + '</div>';
+    }
+    function panels(c) {
+      return '<div class="split" data-px="0.03">' + c.panels.map(function (p) {
+        return '<div class="panel' + (p.feature ? ' feature' : '') + '"><div class="tag">' + p.tag + '</div>' +
+          '<h3>' + p.name + '</h3><p class="sub">' + p.sub + '</p><ul>' +
+          p.items.map(function (i) { return '<li>' + i + '</li>'; }).join("") +
+          '</ul><div class="foot">' + p.foot + '</div></div>';
+      }).join("") + '</div>';
+    }
+    function table(c, mode) {
+      var h = '<thead><tr>' + c.head.map(function (x) { return '<th>' + x + '</th>'; }).join("") + '</tr></thead>';
+      var b = '<tbody>' + c.rows.map(function (r) {
+        return '<tr>' + r.map(function (cell, i) {
+          if (mode === "scopes" && i === 0) return '<td><span class="scope">' + cell + '</span></td>';
+          if (mode === "layers" && i === 0) return '<td class="op">' + cell + '</td>';
+          if (cell === "—") return '<td class="dash">' + cell + '</td>';
+          return '<td>' + cell + '</td>';
+        }).join("") + '</tr>';
+      }).join("") + '</tbody>';
+      return '<div class="table-scroll" data-px="0.03"><table>' + h + b + '</table></div>';
+    }
+    function steps(c) {
+      return '<div class="steps" data-px="0.03">' + c.steps.map(function (s, i) {
+        return '<div class="step"><div class="num">' + (i + 1) + '</div><div><h3>' + s.h + '</h3><p>' + s.html + '</p></div></div>';
+      }).join("") + '</div>';
+    }
+    function notes(c) {
+      return '<div class="notes" data-px="0.03">' + c.notes.map(function (n) {
+        return '<div class="note"><h4>' + n.h + '</h4><p>' + n.p + '</p></div>';
+      }).join("") + '</div>';
+    }
+    function safety(c) {
+      return '<div class="safety" data-px="0.03">' + c.cells.map(function (x) {
+        return '<div><div class="big">' + x.big + '</div><div class="lbl">' + x.lbl + '</div></div>';
+      }).join("") + '</div>';
+    }
+    function doclinks(c) {
+      return '<div class="doclinks" data-px="0.03">' + c.links.map(function (l) {
+        return '<a class="doclink" href="' + c.base + l.file + '"><span class="dt">' + l.title +
+          ' <span class="ar">↗</span></span><span class="dd">' + l.desc + '</span></a>';
+      }).join("") + '</div>';
+    }
+
+    var SECTIONS = [
+      { id: "idea", key: "idea", body: cellsGrid },
+      { id: "backends", key: "backends", body: panels },
+      { id: "layers", key: "layers", body: function (c) { return table(c, "layers"); } },
+      { id: "grants", key: "scopes", body: function (c) { return table(c, "scopes"); } },
+      { id: "security", key: "security", body: cellsGrid },
+      { id: "setup", key: "setup", body: steps },
+      { id: "honest", key: "constraints", body: notes },
+      { id: "data", key: "data", body: safety },
+      { id: "docs", key: "docs", body: doclinks }
+    ];
+
+    function render(content) {
+      SECTIONS.forEach(function (s) {
+        var el = $(s.id), c = content && content[s.key];
+        if (!el || !c) return;
+        try { el.innerHTML = ghost(s.id) + '<div class="wrap">' + head(c) + s.body(c) + '</div>'; }
+        catch (e) { /* leave the section as-is rather than break the page */ }
+      });
+      initReveal();
+      measure();
+    }
+
+    // ---- reveal (opacity only; never fights the parallax transforms) ----
+    var io = null;
+    function initReveal() {
+      var els = [].slice.call(document.querySelectorAll("section .wrap > *, footer .wrap > *"));
+      els.forEach(function (el) { if (!el.classList.contains("reveal")) el.classList.add("reveal"); });
+      if (reduce || !("IntersectionObserver" in window)) { els.forEach(function (el) { el.classList.add("in"); }); return; }
+      if (!io) io = new IntersectionObserver(function (es) {
+        es.forEach(function (e) { if (e.isIntersecting) { e.target.classList.add("in"); io.unobserve(e.target); } });
+      }, { rootMargin: "0px 0px -8% 0px", threshold: 0.06 });
+      els.forEach(function (el) { if (!el.classList.contains("in")) io.observe(el); });
+    }
+
+    // ---- parallax everywhere ----
+    var pxEls = [], mx = 0, ticking = false;
+    function measure() {
+      if (reduce) return;
+      pxEls = [].slice.call(document.querySelectorAll("[data-px]"));
+      var sy = window.scrollY;
+      pxEls.forEach(function (el) {
+        el.style.transform = el.getAttribute("data-keep-x") ? "translateX(-50%)" : "none";
+        var r = el.getBoundingClientRect();
+        el.__c = r.top + sy + el.offsetHeight / 2;
+      });
+      frame();
+    }
+    function frame() {
+      var vc = window.innerHeight / 2, sy = window.scrollY;
+      for (var i = 0; i < pxEls.length; i++) {
+        var el = pxEls[i];
+        var f = parseFloat(el.getAttribute("data-px")) || 0;
+        var y = (vc - (el.__c - sy)) * f;
+        var p = parseFloat(el.getAttribute("data-pointer")) || 0;
+        var x = p ? mx * p : 0;
+        var kx = el.getAttribute("data-keep-x") ? "translateX(-50%) " : "";
+        el.style.transform = kx + "translate3d(" + x.toFixed(1) + "px," + y.toFixed(1) + "px,0)";
+      }
+      ticking = false;
+    }
+    function request() { if (!ticking && !reduce) { ticking = true; requestAnimationFrame(frame); } }
+
+    // ---- sticky header + copy buttons (hero is authored, present at load) ----
+    var bar = $("bar");
+    function onScroll() { if (bar) bar.classList.toggle("stuck", window.scrollY > 8); request(); }
+    document.querySelectorAll(".copy").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var text = btn.getAttribute("data-copy") || "";
+        var done = function () {
+          var prev = btn.textContent; btn.textContent = "Copied"; btn.classList.add("done");
+          setTimeout(function () { btn.textContent = prev; btn.classList.remove("done"); }, 1400);
+        };
+        var fallback = function () {
+          try {
+            var ta = document.createElement("textarea");
+            ta.value = text; ta.setAttribute("readonly", "");
+            ta.style.position = "fixed"; ta.style.top = "0"; ta.style.opacity = "0"; ta.style.pointerEvents = "none";
+            document.body.appendChild(ta); ta.select();
+            var ok = document.execCommand("copy"); document.body.removeChild(ta);
+            if (ok) done();
+          } catch (e) { /* clipboard unavailable */ }
+        };
+        if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(text).then(done, fallback); }
+        else { fallback(); }
+      });
     });
-  });
 
-  var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    var footGhost = document.querySelector("footer .ghost");
+    if (footGhost) footGhost.setAttribute("data-keep-x", "1");
 
-  // reveal on enter (opacity only, so it never fights the parallax transforms)
-  var reveals = [].slice.call(document.querySelectorAll("section .wrap > *, footer .wrap > *"));
-  reveals.forEach(function (el) { el.classList.add("reveal"); });
-  if (reduce || !("IntersectionObserver" in window)) {
-    reveals.forEach(function (el) { el.classList.add("in"); });
-  } else {
-    var io = new IntersectionObserver(function (entries) {
-      entries.forEach(function (e) { if (e.isIntersecting) { e.target.classList.add("in"); io.unobserve(e.target); } });
-    }, { rootMargin: "0px 0px -8% 0px", threshold: 0.06 });
-    reveals.forEach(function (el) { io.observe(el); });
-  }
+    window.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("mousemove", function (e) { mx = (e.clientX / window.innerWidth - 0.5) * 2; request(); }, { passive: true });
+    var rt; window.addEventListener("resize", function () { clearTimeout(rt); rt = setTimeout(measure, 150); });
+    window.addEventListener("load", measure);
 
-  // ---- parallax everywhere ----
-  // Bases are captured with transforms cleared, so reading getBoundingClientRect
-  // never feeds its own output back in and compounds.
-  var pxEls = [].slice.call(document.querySelectorAll("[data-px]"));
-  var mx = 0, my = 0, ticking = false;
-
-  function measure() {
-    if (reduce) return;
-    var sy = window.scrollY;
-    for (var i = 0; i < pxEls.length; i++) {
-      var el = pxEls[i];
-      var keep = el.style.transform;
-      el.style.transform = el.getAttribute("data-keep-x") ? "translateX(-50%)" : "none";
-      var r = el.getBoundingClientRect();
-      el.__c = r.top + sy + el.offsetHeight / 2;
-      if (!el.getAttribute("data-keep-x")) el.style.transform = keep;
-    }
-    render();
-  }
-
-  function render() {
-    var vc = window.innerHeight / 2;
-    var sy = window.scrollY;
-    for (var i = 0; i < pxEls.length; i++) {
-      var el = pxEls[i];
-      var f = parseFloat(el.getAttribute("data-px")) || 0;
-      var y = (vc - (el.__c - sy)) * f;
-      var p = parseFloat(el.getAttribute("data-pointer")) || 0;
-      var x = p ? mx * p : 0;
-      var kx = el.getAttribute("data-keep-x") ? "translateX(-50%) " : "";
-      el.style.transform = kx + "translate3d(" + x.toFixed(1) + "px," + y.toFixed(1) + "px,0)";
-    }
-    ticking = false;
-  }
-
-  function request() { if (!ticking && !reduce) { ticking = true; requestAnimationFrame(render); } }
-
-  // the centered footer ghost keeps its translateX(-50%); flag it so measure/render preserve that
-  var footGhost = document.querySelector("footer .ghost");
-  if (footGhost) footGhost.setAttribute("data-keep-x", "1");
-
-  window.addEventListener("scroll", function () { onScrollBar(); request(); }, { passive: true });
-  window.addEventListener("mousemove", function (e) {
-    mx = (e.clientX / window.innerWidth - 0.5) * 2;
-    my = (e.clientY / window.innerHeight - 0.5) * 2;
-    request();
-  }, { passive: true });
-
-  var rt;
-  window.addEventListener("resize", function () { clearTimeout(rt); rt = setTimeout(measure, 150); });
-  window.addEventListener("load", measure);
-  measure();
-</script>
+    // ---- boot: render from the inlined content, then pull the live file if hosted ----
+    var inline = {};
+    try { inline = JSON.parse(document.getElementById("site-content").textContent); } catch (e) {}
+    onScroll();
+    render(inline);
+    fetch("./data/content.json")
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (data) { if (data && JSON.stringify(data) !== JSON.stringify(inline)) render(data); })
+      .catch(function () { /* not hosted with the data file; the inline copy stands */ });
+  })();
+  </script>
 
 </body>
 </html>
