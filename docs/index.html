@@ -1,0 +1,553 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="MCP Served. Your context, securely served — a local, user-authorized way to let an AI operate an Android phone.">
+<meta name="color-scheme" content="dark light">
+<title>MCPserved — local Android control for AI agents</title>
+<style>
+  :root {
+    --bg: #f5f2ec;
+    --surface: #fffdf8;
+    --surface-2: #efeae0;
+    --fg: #16130e;
+    --muted: #6b655b;
+    --faint: #938c80;
+    --line: rgba(20, 17, 12, 0.14);
+    --line-strong: rgba(20, 17, 12, 0.26);
+    --accent: #a9721a;
+    --accent-fg: #16130e;
+    --good: #3f7d4f;
+    --ghost: color-mix(in srgb, var(--fg) 6%, transparent);
+    --ghost-accent: color-mix(in srgb, var(--accent) 14%, transparent);
+    --mono: ui-monospace, "SF Mono", "SFMono-Regular", "Cascadia Code", "Menlo", "Consolas", monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", "Roboto", "Helvetica Neue", Arial, sans-serif;
+    --maxw: 1120px;
+    --gut: clamp(1.25rem, 4vw, 3rem);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0c0b0a; --surface: #131210; --surface-2: #1a1815;
+      --fg: #ece9e3; --muted: #8a857c; --faint: #6a655c;
+      --line: rgba(236, 233, 227, 0.12); --line-strong: rgba(236, 233, 227, 0.24);
+      --accent: #f2b441; --accent-fg: #16130e; --good: #7fc98f;
+      --ghost: color-mix(in srgb, var(--fg) 7%, transparent);
+      --ghost-accent: color-mix(in srgb, var(--accent) 15%, transparent);
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0c0b0a; --surface: #131210; --surface-2: #1a1815;
+    --fg: #ece9e3; --muted: #8a857c; --faint: #6a655c;
+    --line: rgba(236, 233, 227, 0.12); --line-strong: rgba(236, 233, 227, 0.24);
+    --accent: #f2b441; --accent-fg: #16130e; --good: #7fc98f;
+    --ghost: color-mix(in srgb, var(--fg) 7%, transparent);
+    --ghost-accent: color-mix(in srgb, var(--accent) 15%, transparent);
+  }
+  :root[data-theme="light"] {
+    --bg: #f5f2ec; --surface: #fffdf8; --surface-2: #efeae0;
+    --fg: #16130e; --muted: #6b655b; --faint: #938c80;
+    --line: rgba(20, 17, 12, 0.14); --line-strong: rgba(20, 17, 12, 0.26);
+    --accent: #a9721a; --accent-fg: #16130e; --good: #3f7d4f;
+    --ghost: color-mix(in srgb, var(--fg) 6%, transparent);
+    --ghost-accent: color-mix(in srgb, var(--accent) 14%, transparent);
+  }
+
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; scroll-behavior: smooth; }
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    * { animation: none !important; transition: none !important; }
+  }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font-family: var(--sans); font-size: 17px; line-height: 1.6;
+    -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
+    overflow-x: hidden;
+  }
+  ::selection { background: var(--accent); color: var(--accent-fg); }
+  a { color: inherit; text-decoration: none; }
+  a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 2px; }
+
+  .wrap { max-width: var(--maxw); margin: 0 auto; padding-inline: var(--gut); position: relative; z-index: 1; }
+
+  .eyebrow {
+    font-family: var(--mono); font-size: 0.78rem; letter-spacing: 0.18em;
+    text-transform: uppercase; color: var(--muted); margin: 0 0 1.25rem;
+    display: flex; align-items: center; gap: 0.7rem;
+  }
+  .eyebrow::before { content: ""; width: 1.6rem; height: 1px; background: var(--accent); }
+
+  header.bar {
+    position: sticky; top: 0; z-index: 50;
+    background: color-mix(in srgb, var(--bg) 82%, transparent);
+    backdrop-filter: saturate(140%) blur(10px);
+    border-bottom: 1px solid transparent; transition: border-color 0.3s ease;
+  }
+  header.bar.stuck { border-bottom-color: var(--line); }
+  .bar-in { max-width: var(--maxw); margin: 0 auto; padding: 0.85rem var(--gut); display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+  .brand { font-family: var(--mono); font-weight: 600; letter-spacing: -0.02em; font-size: 1.02rem; display: inline-flex; align-items: baseline; gap: 0.5ch; }
+  .brand b { color: var(--fg); font-weight: 700; }
+  .brand .v { color: var(--muted); font-size: 0.76rem; letter-spacing: 0.06em; }
+  .brand .tagline { color: var(--faint); font-weight: 400; font-size: 0.74rem; letter-spacing: 0.03em; }
+  .brand .tagline::before { content: "·"; margin: 0 0.6ch; color: var(--line-strong); }
+  nav.top { display: flex; align-items: center; gap: clamp(0.9rem, 2vw, 1.9rem); }
+  nav.top a { font-family: var(--mono); font-size: 0.82rem; letter-spacing: 0.02em; color: var(--muted); transition: color 0.2s ease; }
+  nav.top a:hover { color: var(--fg); }
+  nav.top a.gh { color: var(--fg); }
+  .hide-sm { display: inline; }
+  @media (max-width: 720px) { .hide-sm { display: none; } }
+
+  /* ---- ghost parallax typography ---- */
+  .ghost {
+    position: absolute; z-index: 0; pointer-events: none; user-select: none;
+    font-family: var(--sans); font-weight: 800; letter-spacing: -0.05em;
+    font-size: clamp(6rem, 27vw, 21rem); line-height: 0.8; white-space: nowrap;
+    color: var(--ghost); will-change: transform;
+  }
+  .ghost.mono { font-family: var(--mono); font-weight: 600; letter-spacing: -0.03em; }
+  .ghost.accent { color: var(--ghost-accent); }
+
+  .hero { padding-top: clamp(3.5rem, 9vw, 7rem); padding-bottom: clamp(3rem, 7vw, 5.5rem); }
+  h1.display {
+    font-family: var(--sans); font-weight: 800; font-size: clamp(2.9rem, 8.5vw, 6.6rem);
+    line-height: 0.94; letter-spacing: -0.035em; text-wrap: balance; margin: 0 0 1.6rem; max-width: 15ch;
+  }
+  h1.display .lit { color: var(--accent); }
+  .lede { font-size: clamp(1.1rem, 1.9vw, 1.4rem); line-height: 1.5; color: var(--muted); max-width: 46ch; margin: 0 0 2.4rem; }
+  .lede b { color: var(--fg); font-weight: 600; }
+  .tags { display: flex; flex-wrap: wrap; gap: 0.5rem 1.4rem; font-family: var(--mono); font-size: 0.82rem; color: var(--muted); letter-spacing: 0.02em; margin-top: 2.6rem; padding-top: 1.6rem; border-top: 1px solid var(--line); }
+  .tags span { display: inline-flex; align-items: center; gap: 0.55ch; }
+  .tags span::before { content: "—"; color: var(--accent); }
+
+  .code-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; }
+  .term { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; display: flex; flex-direction: column; }
+  .term-head { display: flex; align-items: center; justify-content: space-between; padding: 0.7rem 0.9rem; border-bottom: 1px solid var(--line); font-family: var(--mono); font-size: 0.72rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); background: var(--surface-2); }
+  .term-head .n { color: var(--accent); }
+  .copy { font-family: var(--mono); font-size: 0.68rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); background: transparent; border: 1px solid var(--line-strong); border-radius: 5px; padding: 0.28rem 0.55rem; cursor: pointer; transition: color 0.2s, border-color 0.2s; }
+  .copy:hover { color: var(--fg); border-color: var(--fg); }
+  .copy.done { color: var(--good); border-color: var(--good); }
+  pre { margin: 0; padding: 1.05rem 1.1rem; font-family: var(--mono); font-size: 0.86rem; line-height: 1.7; overflow-x: auto; color: var(--fg); flex: 1; }
+  pre .c { color: var(--faint); }
+  pre .p { color: var(--accent); }
+
+  section { padding-block: clamp(4rem, 9vw, 8rem); border-top: 1px solid var(--line); position: relative; overflow: hidden; }
+  .sec-head { margin-bottom: clamp(2.2rem, 4vw, 3.4rem); }
+  h2 { font-family: var(--sans); font-weight: 800; font-size: clamp(1.9rem, 4.3vw, 3.15rem); line-height: 1.02; letter-spacing: -0.025em; text-wrap: balance; margin: 0; max-width: 20ch; }
+  .sec-head p { color: var(--muted); max-width: 54ch; font-size: 1.08rem; margin: 1.1rem 0 0; }
+
+  .grid-4 { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+  .cell { background: var(--bg); padding: 1.7rem 1.5rem; }
+  .cell h3 { font-family: var(--sans); font-size: 1.22rem; font-weight: 700; letter-spacing: -0.01em; margin: 0 0 0.6rem; }
+  .cell .k { font-family: var(--mono); font-size: 0.72rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--accent); display: block; margin-bottom: 1.1rem; }
+  .cell p { margin: 0; color: var(--muted); font-size: 0.98rem; }
+
+  .split { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1.25rem; }
+  .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 1.9rem 1.7rem; display: flex; flex-direction: column; }
+  .panel.feature { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+  .panel .tag { font-family: var(--mono); font-size: 0.72rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); margin-bottom: 0.9rem; }
+  .panel.feature .tag { color: var(--accent); }
+  .panel h3 { font-size: 1.5rem; font-weight: 750; letter-spacing: -0.02em; margin: 0 0 0.5rem; }
+  .panel .sub { color: var(--muted); margin: 0 0 1.4rem; font-size: 1rem; }
+  .panel ul { list-style: none; margin: 0 0 1.5rem; padding: 0; display: flex; flex-direction: column; gap: 0.7rem; }
+  .panel li { position: relative; padding-left: 1.4rem; color: var(--fg); font-size: 0.97rem; }
+  .panel li::before { content: "→"; position: absolute; left: 0; color: var(--accent); font-family: var(--mono); }
+  .panel li span { color: var(--muted); }
+  .panel .foot { margin-top: auto; padding-top: 1rem; border-top: 1px dashed var(--line); font-family: var(--mono); font-size: 0.8rem; color: var(--muted); }
+
+  .table-scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: 14px; background: var(--bg); }
+  table { border-collapse: collapse; width: 100%; min-width: 520px; font-size: 0.95rem; }
+  th, td { text-align: left; padding: 0.95rem 1.2rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+  thead th { font-family: var(--mono); font-size: 0.72rem; letter-spacing: 0.13em; text-transform: uppercase; color: var(--muted); font-weight: 500; background: var(--surface-2); }
+  tbody tr:last-child td { border-bottom: none; }
+  tbody tr:hover td { background: var(--surface); }
+  td.op { font-family: var(--mono); color: var(--fg); font-size: 0.88rem; white-space: nowrap; }
+  td .scope { font-family: var(--mono); color: var(--accent); font-size: 0.85rem; letter-spacing: 0.04em; }
+  td.dash { color: var(--faint); }
+
+  .steps { display: grid; gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+  .step { background: var(--bg); display: grid; grid-template-columns: auto 1fr; gap: 1.5rem; padding: 1.7rem 1.6rem; align-items: start; }
+  .step .num { font-family: var(--mono); font-size: 2.1rem; font-weight: 500; line-height: 1; color: var(--accent); font-variant-numeric: tabular-nums; letter-spacing: -0.04em; }
+  .step h3 { margin: 0 0 0.35rem; font-size: 1.15rem; font-weight: 700; letter-spacing: -0.01em; }
+  .step p { margin: 0 0 0.8rem; color: var(--muted); font-size: 0.98rem; }
+  .step p:last-child { margin-bottom: 0; }
+  .step code, .inline-code { font-family: var(--mono); font-size: 0.83em; background: var(--surface-2); border: 1px solid var(--line); padding: 0.12em 0.45em; border-radius: 5px; color: var(--fg); white-space: nowrap; }
+
+  .notes { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.1rem 2.4rem; }
+  .note { border-left: 2px solid var(--line-strong); padding-left: 1.1rem; }
+  .note h4 { margin: 0 0 0.35rem; font-size: 1.02rem; font-weight: 700; letter-spacing: -0.01em; }
+  .note p { margin: 0; color: var(--muted); font-size: 0.94rem; }
+
+  .safety { display: flex; flex-wrap: wrap; gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+  .safety div { background: var(--bg); flex: 1 1 180px; padding: 1.5rem 1.4rem; }
+  .safety .big { font-family: var(--sans); font-size: 1.9rem; font-weight: 800; letter-spacing: -0.03em; line-height: 1; margin-bottom: 0.5rem; }
+  .safety .lbl { font-family: var(--mono); font-size: 0.74rem; letter-spacing: 0.13em; text-transform: uppercase; color: var(--muted); }
+
+  footer { border-top: 1px solid var(--line); padding-block: clamp(3rem, 6vw, 5rem); position: relative; overflow: hidden; }
+  .foot-grid { display: flex; flex-wrap: wrap; gap: 2rem; justify-content: space-between; align-items: flex-end; }
+  .foot-mark { font-family: var(--sans); font-weight: 800; font-size: clamp(2.4rem, 7vw, 4.5rem); letter-spacing: -0.04em; line-height: 0.9; }
+  .foot-mark .lit { color: var(--accent); }
+  .foot-tag { font-family: var(--mono); font-size: 0.86rem; letter-spacing: 0.03em; color: var(--muted); margin: 0.9rem 0 0; }
+  .foot-tag b { color: var(--fg); font-weight: 500; }
+  .foot-links { display: flex; flex-direction: column; gap: 0.5rem; font-family: var(--mono); font-size: 0.85rem; }
+  .foot-links a { color: var(--muted); transition: color 0.2s; }
+  .foot-links a:hover { color: var(--fg); }
+  .foot-note { font-family: var(--mono); font-size: 0.76rem; color: var(--faint); margin-top: 2.5rem; letter-spacing: 0.02em; max-width: 60ch; }
+
+  .reveal { opacity: 0; transition: opacity 0.7s ease; }
+  .reveal.in { opacity: 1; }
+  @media (prefers-reduced-motion: reduce) {
+    .reveal { opacity: 1; }
+    .ghost { display: none; }
+    [data-px] { transform: none !important; }
+  }
+</style>
+</head>
+<body>
+
+<header class="bar" id="bar">
+  <div class="bar-in">
+    <span class="brand"><b>MCPserved</b><span class="v">v0.2</span><span class="tagline hide-sm">Your context, securely served</span></span>
+    <nav class="top">
+      <a href="#backends" class="hide-sm">Backends</a>
+      <a href="#security" class="hide-sm">Security</a>
+      <a href="#setup" class="hide-sm">Setup</a>
+      <a href="https://github.com/HereLiesAz/MCPserved" class="gh">GitHub&nbsp;↗</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <section class="hero" style="border-top: none;">
+    <span class="ghost mono" aria-hidden="true" style="right: -8vw; bottom: -1rem;" data-px="0.14" data-pointer="22">127.0.0.1</span>
+    <div class="wrap">
+      <p class="eyebrow" data-px="0.05">Local Android control for AI agents</p>
+      <h1 class="display" data-px="0.03">An AI drives your phone. <span class="lit">It never leaves your hands.</span></h1>
+      <p class="lede" data-px="0.06">
+        A desktop MCP server and an Android app. A model reads the screen and taps,
+        types, and swipes — over a USB or Wi-Fi <b>adb</b> link, or the paired app.
+        <b>No relay. No cloud. No account.</b>
+      </p>
+
+      <div class="code-grid" data-px="0.09">
+        <div class="term">
+          <div class="term-head"><span><span class="n">01</span> &nbsp;quick connect · adb</span>
+            <button class="copy" data-copy="npm i -g mcpserved &amp;&amp; mcpserved">Copy</button>
+          </div>
+<pre><span class="c"># USB debugging on — or: adb connect &lt;ip&gt;:5555</span>
+npm i -g mcpserved
+<span class="p">mcpserved</span>   <span class="c"># it drives the phone over adb</span></pre>
+        </div>
+        <div class="term">
+          <div class="term-head"><span><span class="n">02</span> &nbsp;richer · paired app</span>
+            <button class="copy" data-copy="mcpserved pair">Copy</button>
+          </div>
+<pre><span class="c"># install the app, then pair by QR</span>
+mcpserved <span class="p">pair</span>
+<span class="c"># unlocks accessibility + per-app grants</span></pre>
+        </div>
+      </div>
+
+      <div class="tags" data-px="0.12">
+        <span>loopback only</span>
+        <span>per-app grants</span>
+        <span>timed sessions</span>
+        <span>sealed frames</span>
+      </div>
+    </div>
+  </section>
+
+  <section id="idea">
+    <span class="ghost" aria-hidden="true" style="left: -5vw; top: 1.5rem;" data-px="0.26">AUTHORIZED</span>
+    <div class="wrap">
+      <div class="sec-head">
+        <p class="eyebrow" data-px="0.05">The idea</p>
+        <h2 data-px="0.02">Authority comes from the device. Never the network.</h2>
+        <p data-px="0.08">
+          The phone decides — nothing else. A model, a script, an assistant on your
+          laptop: each gets in only through a connection you opened, and touches only
+          what you allowed.
+        </p>
+      </div>
+      <div class="grid-4" data-px="0.03">
+        <div class="cell"><span class="k">Local</span><h3>It never phones home</h3><p>Control rides a USB cable or an adb-over-Wi-Fi session you started. No internet. No server. Your screen stays between the two machines.</p></div>
+        <div class="cell"><span class="k">Authorized</span><h3>Dead until you say go</h3><p>An empty grant table can't touch a thing. No denylist to keep current — only what you switched on.</p></div>
+        <div class="cell"><span class="k">Transparent</span><h3>You watch it work</h3><p>Every session is timed, pinned to an ongoing notification with a stop button, and logged action by action.</p></div>
+        <div class="cell"><span class="k">Revocable</span><h3>Two ways to kill it</h3><p>Empty the grants and it can't act. Rotate the key and it can't connect. Uninstall and it's gone.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="backends">
+    <span class="ghost mono accent" aria-hidden="true" style="right: -3vw; top: -1rem;" data-px="0.28">adb</span>
+    <div class="wrap">
+      <div class="sec-head">
+        <p class="eyebrow" data-px="0.05">Two backends, one interface</p>
+        <h2 data-px="0.02">Start with adb. Upgrade to the app.</h2>
+        <p data-px="0.08">
+          Same tools either way — the model can't tell them apart. The app just gives
+          the phone more to say back.
+        </p>
+      </div>
+      <div class="split" data-px="0.03">
+        <div class="panel">
+          <div class="tag">Default · quick connect</div>
+          <h3>adb</h3>
+          <p class="sub">No app. Any phone with USB debugging or adb-over-Wi-Fi.</p>
+          <ul>
+            <li><span>Gestures &amp; keys —</span> input</li>
+            <li><span>UI tree —</span> uiautomator dump</li>
+            <li><span>Screenshots —</span> screencap</li>
+            <li><span>A full shell, device-wide — exactly what USB debugging grants</span></li>
+          </ul>
+          <div class="foot">no per-app grants · no clipboard · no notification list</div>
+        </div>
+        <div class="panel feature">
+          <div class="tag">Upgrade · paired app</div>
+          <h3>on-device app</h3>
+          <p class="sub">Tunnels to the app's loopback server over an <span class="inline-code">adb forward</span> it opens itself.</p>
+          <ul>
+            <li>Accessibility backend — semantic tree, real text entry</li>
+            <li>Per-package grants, scoped and expiring</li>
+            <li>Timed sessions with an ongoing notification</li>
+            <li>Clipboard and notification mirror</li>
+          </ul>
+          <div class="foot">sealed frames · loopback only · falls back to adb</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="layers">
+    <span class="ghost" aria-hidden="true" style="left: -4vw; bottom: -2rem;" data-px="0.22">RESOLVE</span>
+    <div class="wrap">
+      <div class="sec-head">
+        <p class="eyebrow" data-px="0.05">Control layers</p>
+        <h2 data-px="0.02">Backends aren't tiers.</h2>
+        <p data-px="0.08">
+          Root isn't always better — <span class="inline-code">su -c input tap</span> forks a process per gesture and
+          trails the accessibility path. But root is the only screenshot with no
+          capture dialog. The resolver picks per operation.
+        </p>
+      </div>
+      <div class="table-scroll" data-px="0.03">
+        <table>
+          <thead><tr><th>Operation</th><th>Preferred</th><th>Fallback</th></tr></thead>
+          <tbody>
+            <tr><td class="op">ui_tree · scroll</td><td>Accessibility</td><td class="dash">—</td></tr>
+            <tr><td class="op">gestures · text · keys</td><td>Accessibility</td><td>root, Shizuku</td></tr>
+            <tr><td class="op">screenshot</td><td>root screencap</td><td>MediaProjection</td></tr>
+            <tr><td class="op">launch · shell</td><td>root</td><td>Shizuku</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section id="grants">
+    <span class="ghost" aria-hidden="true" style="right: -3vw; top: 0.5rem;" data-px="0.24">GRANT</span>
+    <div class="wrap">
+      <div class="sec-head">
+        <p class="eyebrow" data-px="0.05">Authorization</p>
+        <h2 data-px="0.02">Per package. Per scope. Revocable. Expiring by default.</h2>
+        <p data-px="0.08">
+          Grants live in the app. The pure-adb path has none — adb is device-wide
+          shell power, stated plainly, not dressed down.
+        </p>
+      </div>
+      <div class="table-scroll" data-px="0.03">
+        <table>
+          <thead><tr><th>Scope</th><th>Permits</th></tr></thead>
+          <tbody>
+            <tr><td><span class="scope">OBSERVE</span></td><td>read the screen and notifications</td></tr>
+            <tr><td><span class="scope">INTERACT</span></td><td>tap, swipe, scroll, press keys</td></tr>
+            <tr><td><span class="scope">TYPE</span></td><td>type text, set the clipboard</td></tr>
+            <tr><td><span class="scope">LAUNCH</span></td><td>bring an app to the front</td></tr>
+            <tr><td><span class="scope">SHELL</span></td><td>run shell commands, while the app is open</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section id="security">
+    <span class="ghost mono accent" aria-hidden="true" style="left: -4vw; top: 1rem;" data-px="0.26">X25519</span>
+    <div class="wrap">
+      <div class="sec-head">
+        <p class="eyebrow" data-px="0.05">Security model</p>
+        <h2 data-px="0.02">Local. And still sealed.</h2>
+        <p data-px="0.08">
+          Loopback isn't a wall — any app on the phone can dial a local port. The
+          pairing key decides who gets an answer.
+        </p>
+      </div>
+      <div class="grid-4" data-px="0.03">
+        <div class="cell"><span class="k">Pairing</span><h3>X25519, out of band</h3><p>Both public keys go by QR, both directions. Nothing sits in the handshake. Keys stay encrypted on the device and never leave it.</p></div>
+        <div class="cell"><span class="k">Frames</span><h3>ChaCha20-Poly1305</h3><p>Every message is sealed and authenticated. A frame that won't open gets no reply — not even a hint the device is there.</p></div>
+        <div class="cell"><span class="k">Per connection</span><h3>Fresh keys every time</h3><p>A random salt in the hello derives new keys per connection. Relaunch the client; no nonce ever repeats.</p></div>
+        <div class="cell"><span class="k">Reach</span><h3>127.0.0.1, full stop</h3><p>The channel binds to IPv4 loopback and dials nothing out. Reachable only through an adb-forward tunnel you set up.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="setup">
+    <span class="ghost" aria-hidden="true" style="right: -2vw; bottom: -2rem;" data-px="0.2">ARM</span>
+    <div class="wrap">
+      <div class="sec-head">
+        <p class="eyebrow" data-px="0.05">Setup</p>
+        <h2 data-px="0.02">Plugged in to acting, in four.</h2>
+      </div>
+      <div class="steps" data-px="0.03">
+        <div class="step"><div class="num">1</div><div><h3>Reach it with adb</h3><p>USB debugging on and plugged in — or <code>adb connect &lt;ip&gt;:5555</code> over the network. Check with <code>adb devices</code>.</p></div></div>
+        <div class="step"><div class="num">2</div><div><h3>Point your host at the server</h3><p>Run <code>mcpserved</code>. Unpaired, it drives the phone straight over adb. Ready now.</p></div></div>
+        <div class="step"><div class="num">3</div><div><h3>Optional: pair the app</h3><p>Want accessibility, grants, and the notification mirror? Install the app, run <code>mcpserved pair</code>, and scan both ways.</p></div></div>
+        <div class="step"><div class="num">4</div><div><h3>Arm, grant, go</h3><p>Accept the disclosure, enable the service, arm it, and grant the packages you want reachable. The server upgrades to the app on its own.</p></div></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="honest">
+    <span class="ghost" aria-hidden="true" style="left: -4vw; top: 1rem;" data-px="0.22">CAVEATS</span>
+    <div class="wrap">
+      <div class="sec-head">
+        <p class="eyebrow" data-px="0.05">Honest constraints</p>
+        <h2 data-px="0.02">What it won't fake.</h2>
+      </div>
+      <div class="notes" data-px="0.03">
+        <div class="note"><h4>The screen stays on in an app session</h4><p>Lock the device and the node tree empties. Keep sessions short.</p></div>
+        <div class="note"><h4>Shizuku dies on reboot</h4><p>No root means a manual re-pair after every restart.</p></div>
+        <div class="note"><h4>adb text is ASCII-ish</h4><p>Spaces work; newlines and most non-ASCII don't. The app handles the rest.</p></div>
+        <div class="note"><h4>adb has no clipboard or notifications</h4><p>Those need the paired app.</p></div>
+        <div class="note"><h4>iOS is out</h4><p>No third-party iOS app can automate another. Apple's rule, not ours.</p></div>
+        <div class="note"><h4>Play still wants disclosure</h4><p>The relay's gone, but accessibility use is declared — with a prominent in-app notice.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="data">
+    <span class="ghost accent" aria-hidden="true" style="right: -1vw; top: -3rem;" data-px="0.2">NONE</span>
+    <div class="wrap">
+      <div class="sec-head">
+        <p class="eyebrow" data-px="0.05">Data safety</p>
+        <h2 data-px="0.02">Nothing collected. Nowhere to send it.</h2>
+      </div>
+      <div class="safety" data-px="0.03">
+        <div><div class="big">0</div><div class="lbl">Analytics or accounts</div></div>
+        <div><div class="big">0</div><div class="lbl">Outbound connections</div></div>
+        <div><div class="big">On-device</div><div class="lbl">Keys, encrypted</div></div>
+        <div><div class="big">Loopback</div><div class="lbl">The only listener</div></div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <span class="ghost" aria-hidden="true" style="left: 50%; transform: translateX(-50%); bottom: -3.5rem;" data-px="0.16">LOCAL</span>
+  <div class="wrap">
+    <div class="foot-grid">
+      <div>
+        <div class="foot-mark">MCP<span class="lit">served</span></div>
+        <p class="foot-tag"><b>Your context, securely served.</b></p>
+      </div>
+      <div class="foot-links">
+        <a href="https://github.com/HereLiesAz/MCPserved">Source · GitHub ↗</a>
+        <a href="#backends">Backends</a>
+        <a href="#security">Security model</a>
+        <a href="#setup">Setup</a>
+      </div>
+    </div>
+    <p class="foot-note">
+      An Android app and a desktop MCP server. The app goes to Play; the server is a
+      dev tool you run yourself. Local by construction — and that's the whole pitch.
+    </p>
+  </div>
+</footer>
+
+<script>
+  var bar = document.getElementById("bar");
+  var onScrollBar = function () { bar.classList.toggle("stuck", window.scrollY > 8); };
+  onScrollBar();
+
+  document.querySelectorAll(".copy").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var text = btn.getAttribute("data-copy") || "";
+      var done = function () {
+        var prev = btn.textContent;
+        btn.textContent = "Copied"; btn.classList.add("done");
+        setTimeout(function () { btn.textContent = prev; btn.classList.remove("done"); }, 1400);
+      };
+      if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(text).then(done, done); }
+      else { done(); }
+    });
+  });
+
+  var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  // reveal on enter (opacity only, so it never fights the parallax transforms)
+  var reveals = [].slice.call(document.querySelectorAll("section .wrap > *, footer .wrap > *"));
+  reveals.forEach(function (el) { el.classList.add("reveal"); });
+  if (reduce || !("IntersectionObserver" in window)) {
+    reveals.forEach(function (el) { el.classList.add("in"); });
+  } else {
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) { if (e.isIntersecting) { e.target.classList.add("in"); io.unobserve(e.target); } });
+    }, { rootMargin: "0px 0px -8% 0px", threshold: 0.06 });
+    reveals.forEach(function (el) { io.observe(el); });
+  }
+
+  // ---- parallax everywhere ----
+  // Bases are captured with transforms cleared, so reading getBoundingClientRect
+  // never feeds its own output back in and compounds.
+  var pxEls = [].slice.call(document.querySelectorAll("[data-px]"));
+  var mx = 0, my = 0, ticking = false;
+
+  function measure() {
+    if (reduce) return;
+    var sy = window.pageYOffset;
+    for (var i = 0; i < pxEls.length; i++) {
+      var el = pxEls[i];
+      var keep = el.style.transform;
+      el.style.transform = el.getAttribute("data-keep-x") ? "translateX(-50%)" : "none";
+      var r = el.getBoundingClientRect();
+      el.__c = r.top + sy + el.offsetHeight / 2;
+      if (!el.getAttribute("data-keep-x")) el.style.transform = keep;
+    }
+    render();
+  }
+
+  function render() {
+    var vc = window.innerHeight / 2;
+    var sy = window.pageYOffset;
+    for (var i = 0; i < pxEls.length; i++) {
+      var el = pxEls[i];
+      var f = parseFloat(el.getAttribute("data-px")) || 0;
+      var y = (vc - (el.__c - sy)) * f;
+      var p = parseFloat(el.getAttribute("data-pointer")) || 0;
+      var x = p ? mx * p : 0;
+      var kx = el.getAttribute("data-keep-x") ? "translateX(-50%) " : "";
+      el.style.transform = kx + "translate3d(" + x.toFixed(1) + "px," + y.toFixed(1) + "px,0)";
+    }
+    ticking = false;
+  }
+
+  function request() { if (!ticking && !reduce) { ticking = true; requestAnimationFrame(render); } }
+
+  // the centered footer ghost keeps its translateX(-50%); flag it so measure/render preserve that
+  var footGhost = document.querySelector("footer .ghost");
+  if (footGhost) footGhost.setAttribute("data-keep-x", "1");
+
+  window.addEventListener("scroll", function () { onScrollBar(); request(); }, { passive: true });
+  window.addEventListener("mousemove", function (e) {
+    mx = (e.clientX / window.innerWidth - 0.5) * 2;
+    my = (e.clientY / window.innerHeight - 0.5) * 2;
+    request();
+  }, { passive: true });
+
+  var rt;
+  window.addEventListener("resize", function () { clearTimeout(rt); rt = setTimeout(measure, 150); });
+  window.addEventListener("load", measure);
+  measure();
+</script>
+
+</body>
+</html>
