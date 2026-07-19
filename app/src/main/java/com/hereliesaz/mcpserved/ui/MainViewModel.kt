@@ -35,17 +35,22 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     /**
      * Whether the prominent disclosure has been accepted.
      *
-     * Gates the entire UI. It is recorded once and never cleared here: revoking
-     * consent is uninstalling the app, which is the honest scope for a decision
-     * this broad.
+     * Gates the entire UI. `null` means "not yet loaded": the value is read off
+     * the main thread, and while it is pending the UI shows neither the
+     * disclosure nor the main surface, so there is no flash of gated content and
+     * no disk I/O on the main thread. It is recorded once and never cleared here:
+     * revoking consent is uninstalling the app, which is the honest scope for a
+     * decision this broad.
      */
-    private val _hasConsented = MutableStateFlow(consent.isAccepted)
-    val hasConsented: StateFlow<Boolean> = _hasConsented
+    private val _hasConsented = MutableStateFlow<Boolean?>(null)
+    val hasConsented: StateFlow<Boolean?> = _hasConsented
 
     /** Records acceptance of the disclosure and lets the rest of the app open. */
     fun grantConsent() {
-        consent.accept()
-        _hasConsented.value = true
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) { consent.accept() }
+            _hasConsented.value = true
+        }
     }
 
     /** One installed application, with whatever grant it currently holds. */
@@ -72,6 +77,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     init {
         refreshApps()
+        viewModelScope.launch {
+            _hasConsented.value = withContext(Dispatchers.IO) { consent.isAccepted }
+        }
     }
 
     /**

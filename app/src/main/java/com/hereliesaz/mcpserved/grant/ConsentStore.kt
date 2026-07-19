@@ -12,13 +12,14 @@ import android.content.Context
  * decision, not a secret, and nothing here is worth protecting from the device's
  * owner.
  *
- * Read synchronously because it gates the very first frame drawn: the disclosure
- * must be shown before anything else, and an async load would flash the main UI
- * for a frame before the gate resolved.
+ * The SharedPreferences file is opened lazily so its first disk load happens off
+ * the main thread, wherever the caller first touches [isAccepted]. The context is
+ * stored as the application context so the store never pins an Activity.
  */
 class ConsentStore(ctx: Context) {
 
-    private val prefs = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+    private val appCtx = ctx.applicationContext
+    private val prefs by lazy { appCtx.getSharedPreferences(PREFS, Context.MODE_PRIVATE) }
 
     /** True once the disclosure has been accepted. */
     val isAccepted: Boolean

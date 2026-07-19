@@ -46,11 +46,16 @@ class MainActivity : ComponentActivity() {
                 // The disclosure gates everything. Until it is accepted there is no
                 // way through to the accessibility-settings shortcut, the pairing
                 // screen, or the arm control — the affirmative step comes first.
+                // null is the brief pre-load state: draw the themed background
+                // rather than either real surface, so nothing gated flashes.
                 val consented by vm.hasConsented.collectAsStateWithLifecycle()
-                if (consented) {
-                    Root(vm)
-                } else {
-                    DisclosureScreen(onAccept = vm::grantConsent, onDecline = { finish() })
+                when (consented) {
+                    true -> Root(vm)
+                    false -> DisclosureScreen(onAccept = vm::grantConsent, onDecline = { finish() })
+                    null -> Surface(
+                        modifier = Modifier.fillMaxSize(),
+                        color = MaterialTheme.colorScheme.background
+                    ) {}
                 }
             }
         }
