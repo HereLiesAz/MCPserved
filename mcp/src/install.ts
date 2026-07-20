@@ -2,7 +2,7 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { homedir, platform } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { createInterface } from "node:readline/promises";
 
 /**
@@ -39,6 +39,12 @@ interface Target {
   key: "mcpServers" | "servers";
   /** One server entry, in this host's expected shape. */
   entry: (launch: Launch) => Record<string, unknown>;
+  /**
+   * Whether this host can connect to a remote MCP server by URL with custom
+   * headers. Those get a native `url` + `Authorization` entry for the direct
+   * device path; the rest are bridged through the `mcp-remote` stdio shim.
+   */
+  directNative?: boolean;
   note?: string;
 }
 
@@ -101,6 +107,7 @@ const TARGETS: Target[] = [
     label: "Cursor",
     key: "mcpServers",
     entry: mcpServersEntry,
+    directNative: true,
     path: () => join(homedir(), ".cursor", "mcp.json"),
     note: "Reload Cursor; check Settings → MCP for a green dot.",
   },
@@ -109,6 +116,7 @@ const TARGETS: Target[] = [
     label: "VS Code",
     key: "servers",
     entry: vscodeEntry,
+    directNative: true,
     path: () => join(codeUserDir("Code"), "mcp.json"),
     note: "Requires GitHub Copilot with MCP (Agent mode). Start the server from the MCP view.",
   },
@@ -117,6 +125,7 @@ const TARGETS: Target[] = [
     label: "VS Code Insiders",
     key: "servers",
     entry: vscodeEntry,
+    directNative: true,
     path: () => join(codeUserDir("Code - Insiders"), "mcp.json"),
   },
   {
@@ -372,4 +381,240 @@ async function pick(): Promise<string[]> {
   } finally {
     rl.close();
   }
+}
+
+// ===========================================================================
+// connect — wire a host straight to the device's own MCP-over-HTTP endpoint.
+//
+// `install` registers the desktop bridge (a stdio server on this machine).
+// `connect` skips the bridge entirely: the phone is the MCP server, and this
+// sets a host up to talk to it directly. It brings up the `adb forward` tunnel,
+// then writes each host's config — a native `url` + `Authorization` header where
+// the host supports it, or the `mcp-remote` stdio↔HTTP shim where it does not.
+// ===========================================================================
+
+const DEFAULT_MCP_HTTP_PORT = 8791;
+
+interface ConnectOpts {
+  token?: string;
+  port: number;
+  host?: string;
+  serial?: string;
+  noForward: boolean;
+  print: boolean;
+  all: boolean;
+  list: boolean;
+  help: boolean;
+  names: string[];
+}
+
+function parseConnectArgs(argv: string[]): ConnectOpts {
+  const o: ConnectOpts = {
+    port: DEFAULT_MCP_HTTP_PORT,
+    noForward: false,
+    print: false,
+    all: false,
+    list: false,
+    help: false,
+    names: [],
+  };
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    switch (a) {
+      case "--token": o.token = argv[++i]; break;
+      case "--port": {
+        const n = Number(argv[++i]);
+        if (Number.isInteger(n) && n > 0 && n < 65536) o.port = n;
+        break;
+      }
+      case "--host": o.host = argv[++i]; break;
+      case "--serial": o.serial = argv[++i]; break;
+      case "--no-forward": o.noForward = true; break;
+      case "--print": o.print = true; break;
+      case "--all": o.all = true; break;
+      case "--list": o.list = true; break;
+      case "--help":
+      case "-h": o.help = true; break;
+      default:
+        if (!a.startsWith("--")) o.names.push(a);
+    }
+  }
+  return o;
+}
+
+/** The mcp-remote invocation that bridges a stdio-only host to the HTTP endpoint. */
+function shimArgs(url: string, token: string): string[] {
+  return ["-y", "mcp-remote", url, "--header", `Authorization: Bearer ${token}`];
+}
+
+/** Direct entry for a host that speaks HTTP with headers natively. */
+function directNativeEntry(
+  target: Target,
+  url: string,
+  token: string,
+): Record<string, unknown> {
+  const headers = { Authorization: `Bearer ${token}` };
+  // VS Code (key "servers") wants an explicit transport type.
+  return target.key === "servers" ? { type: "http", url, headers } : { url, headers };
+}
+
+/** Direct entry for a stdio-only host: launch the mcp-remote shim. */
+function shimEntry(url: string, token: string): Record<string, unknown> {
+  return { command: "npx", args: shimArgs(url, token) };
+}
+
+/** Sets up `adb forward tcp:port tcp:port`, honoring an explicit --serial. */
+function forwardPort(port: number, serial?: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const adb = process.env.MCPSERVED_ADB || "adb";
+    const args = [...(serial ? ["-s", serial] : []), "forward", `tcp:${port}`, `tcp:${port}`];
+    const child = spawn(adb, args);
+    let err = "";
+    child.stderr.on("data", (d: Buffer) => (err += d.toString()));
+    child.on("error", reject);
+    child.on("close", (code) =>
+      code === 0 ? resolve() : reject(new Error(err.trim() || `adb forward exited ${code}`)),
+    );
+  });
+}
+
+/** Registers the mcp-remote shim with Claude Code via its CLI. */
+function connectClaudeCode(url: string, token: string): void {
+  const cmd = ["mcp", "add", SERVER_NAME, "-s", "user", "--", "npx", ...shimArgs(url, token)];
+  const binary = platform() === "win32" ? "claude.cmd" : "claude";
+  try {
+    execFileSync(binary, cmd, { stdio: "ignore" });
+    console.log("  Claude Code       ✓ added via `claude mcp add` (mcp-remote shim)");
+  } catch (err) {
+    const notFound = (err as NodeJS.ErrnoException)?.code === "ENOENT";
+    const why = notFound ? "`claude` not found on PATH" : "`claude mcp add` failed";
+    console.log(`  Claude Code       ! ${why}. Run this yourself:`);
+    console.log(`      claude ${cmd.map((c) => (c.includes(" ") ? `"${c}"` : c)).join(" ")}`);
+  }
+}
+
+async function promptToken(): Promise<string> {
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    console.log("\nPaste the bearer token from the app's Pair screen (Copy token only).");
+    return (await rl.question("token: ")).trim();
+  } finally {
+    rl.close();
+  }
+}
+
+function connectUsage(): void {
+  console.log(`\nmcpserved connect — wire a host to the device's own MCP server.\n`);
+  console.log(`Usage:`);
+  console.log(`  mcpserved connect [clients...] --token <t> [--port 8791]`);
+  console.log(`  mcpserved connect --all --token <t>`);
+  console.log(`  mcpserved connect [clients...] --host <ip:port> --token <t>   # LAN, no adb\n`);
+  console.log(`Clients: claude-desktop, claude-code, cursor, vscode, vscode-insiders, windsurf, cline\n`);
+  console.log(`Flags:`);
+  console.log(`  --token <t>    bearer token from the app (else \$MCPSERVED_TOKEN, else prompt)`);
+  console.log(`  --port <n>     device MCP port (default 8791; sets up adb forward)`);
+  console.log(`  --host <h:p>   connect over the network to this address; skips adb forward`);
+  console.log(`  --serial <s>   target this adb device for the forward`);
+  console.log(`  --no-forward   don't run adb forward (you'll set the tunnel up yourself)`);
+  console.log(`  --all          every supported client found`);
+  console.log(`  --print        show the JSON to paste; write nothing`);
+  console.log(`  --list         list clients and exit\n`);
+}
+
+export async function connect(argv: string[]): Promise<void> {
+  const o = parseConnectArgs(argv);
+  if (o.help) return connectUsage();
+  if (o.list) {
+    console.log("\nSupported clients:");
+    console.log("  claude-code (via `claude mcp add` + mcp-remote)");
+    for (const t of TARGETS) {
+      const how = t.directNative ? "native url+headers" : "mcp-remote shim";
+      console.log(`  ${t.id.padEnd(16)} ${how}`);
+    }
+    console.log("");
+    return;
+  }
+
+  // Endpoint: a --host connects over the network directly; otherwise it is the
+  // device's loopback port reached through an adb-forward tunnel.
+  const url = o.host ? `http://${o.host}/mcp` : `http://127.0.0.1:${o.port}/mcp`;
+  const doForward = !o.host && !o.noForward;
+
+  const token = (o.token ?? process.env.MCPSERVED_TOKEN ?? "").trim() || (await promptToken());
+  if (!token) {
+    console.log("A bearer token is required — copy it from the app's Pair screen.");
+    return;
+  }
+
+  const chosen = o.all
+    ? ["claude-code", ...TARGETS.map((t) => t.id)]
+    : o.names.length > 0
+      ? o.names
+      : await pick();
+  if (chosen.length === 0) {
+    console.log("Nothing selected.");
+    return;
+  }
+
+  if (doForward && !o.print) {
+    try {
+      await forwardPort(o.port, o.serial);
+      console.log(`\nadb forward tcp:${o.port} → device tcp:${o.port}  ✓`);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.log(`\nadb forward failed: ${msg}`);
+      console.log(`Set it up yourself:  adb forward tcp:${o.port} tcp:${o.port}`);
+    }
+  }
+
+  console.log(`\nEndpoint: ${url}\n`);
+
+  for (const id of chosen) {
+    if (id === "claude-code") {
+      if (o.print) {
+        console.log("  Claude Code       run: claude mcp add mcpserved -s user -- npx " + shimArgs(url, token).join(" "));
+      } else {
+        connectClaudeCode(url, token);
+      }
+      continue;
+    }
+
+    const target = TARGETS.find((t) => t.id === id);
+    if (!target) {
+      console.log(`  ${id.padEnd(18)}? unknown client (see --list)`);
+      continue;
+    }
+
+    const path = target.path();
+    if (!path) {
+      console.log(`  ${target.label.padEnd(18)}- not available on this OS`);
+      continue;
+    }
+
+    const entry = target.directNative
+      ? directNativeEntry(target, url, token)
+      : shimEntry(url, token);
+
+    if (o.print) {
+      printSnippet(target, entry);
+      continue;
+    }
+
+    const result = writeConfig(path, target.key, entry);
+    if (result === "blocked") {
+      console.log(`  ${target.label.padEnd(18)}! ${path} is not plain JSON — not rewriting.`);
+      printSnippet(target, entry);
+    } else {
+      const verb = result === "updated" ? "updated" : "added to";
+      const how = target.directNative ? "" : " (via mcp-remote)";
+      console.log(`  ${target.label.padEnd(18)}✓ ${verb} ${path}${how}`);
+      if (target.note) console.log(`  ${" ".repeat(18)}  ${target.note}`);
+    }
+  }
+
+  console.log(
+    "\nDone. Make sure the app is installed, armed, and reachable by adb, then " +
+      "reload the host.\nThe token is the boundary — a request without it gets 401. " +
+      "Rotate it in the app to revoke.\n",
+  );
 }
