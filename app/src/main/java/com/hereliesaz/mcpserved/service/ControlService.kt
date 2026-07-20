@@ -10,6 +10,7 @@ import android.content.Intent
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.hereliesaz.mcpserved.R
 import com.hereliesaz.mcpserved.backend.A11yBackend
@@ -50,6 +51,7 @@ import kotlinx.coroutines.launch
 class ControlService : Service() {
 
     companion object {
+        private const val TAG = "ControlService"
         private const val CHANNEL_ID = "mcpserved.session"
         private const val NOTIFICATION_ID = 0x4D43
 
@@ -122,7 +124,12 @@ class ControlService : Service() {
         startForeground(NOTIFICATION_ID, buildNotification())
 
         server.start()
-        mcpServer.startServer()
+        if (!mcpServer.startServer()) {
+            // The port is taken or the bind was refused. The device's direct MCP
+            // endpoint is unavailable this run; the sealed-frame server for the
+            // desktop bridge is unaffected, so the service stays useful.
+            Log.w(TAG, "on-device MCP endpoint failed to bind; the desktop bridge still works")
+        }
         scope.launch { reaper() }
     }
 
@@ -147,8 +154,11 @@ class ControlService : Service() {
 
     override fun onDestroy() {
         endSession()
-        mcpServer.stopServer()
-        scope.launch { server.stop() }
+        // Guarded: onCreate may have thrown before these lateinit fields were
+        // assigned, and onDestroy still runs. Touching them unguarded would raise
+        // UninitializedPropertyAccessException and mask the original failure.
+        if (::mcpServer.isInitialized) mcpServer.stopServer()
+        if (::server.isInitialized) scope.launch { server.stop() }
         scope.cancel()
         instance = null
         super.onDestroy()

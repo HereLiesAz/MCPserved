@@ -5,11 +5,11 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonObjectBuilder
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 
@@ -78,7 +78,7 @@ class McpBridge(
      * flagged `isError`.
      */
     suspend fun toolsCall(params: JsonObject?): JsonObject {
-        val name = params?.get("name")?.jsonPrimitive?.contentOrNull
+        val name = (params?.get("name") as? JsonPrimitive)?.contentOrNull
             ?: return errorResult("missing tool name")
         val arguments = params["arguments"] as? JsonObject ?: JsonObject(emptyMap())
 
@@ -170,8 +170,8 @@ class McpBridge(
         "swipe" -> ack(resp, "swiped")
         "scroll" -> ack(resp, "scrolled")
         "type" -> ack(resp, "typed")
-        "key" -> ack(resp, "pressed ${args["key"]?.jsonPrimitive?.contentOrNull ?: ""}")
-        "launch" -> ack(resp, "launched ${args["pkg"]?.jsonPrimitive?.contentOrNull ?: ""}")
+        "key" -> ack(resp, "pressed ${(args["key"] as? JsonPrimitive)?.contentOrNull ?: ""}")
+        "launch" -> ack(resp, "launched ${(args["pkg"] as? JsonPrimitive)?.contentOrNull ?: ""}")
         "clipboard_set" -> ack(resp, "clipboard set")
 
         else -> errText(resp)

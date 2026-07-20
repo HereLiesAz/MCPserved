@@ -36,8 +36,17 @@ class McpToken(ctx: Context) {
         )
     }
 
-    /** The current token, minting one on first read. */
-    fun value(): String = prefs.getString(KEY_TOKEN, null) ?: rotate()
+    /**
+     * The current token, minting one on first read.
+     *
+     * Synchronized on a process-wide lock. This is reached from NanoHTTPD worker
+     * threads (via [matches]) and from the UI thread at once, and two callers that
+     * both saw an empty store would otherwise each mint a token — the second write
+     * winning, and a request authenticated against the first then failing. The lock
+     * is class-level, not per-instance, because the service and the UI hold
+     * separate [McpToken] instances over the same encrypted file.
+     */
+    fun value(): String = synchronized(LOCK) { prefs.getString(KEY_TOKEN, null) ?: mint() }
 
     /**
      * Mints a fresh token, invalidating any host still configured with the old one.
@@ -46,7 +55,9 @@ class McpToken(ctx: Context) {
      * configured client presents a secret the device no longer accepts, and every
      * request it makes gets 401 until the operator re-copies the new one.
      */
-    fun rotate(): String {
+    fun rotate(): String = synchronized(LOCK) { mint() }
+
+    private fun mint(): String {
         val raw = ByteArray(32).also { SecureRandom().nextBytes(it) }
         val tok = Base64.encodeToString(raw, Base64.NO_WRAP or Base64.URL_SAFE or Base64.NO_PADDING)
         prefs.edit().putString(KEY_TOKEN, tok).apply()
@@ -70,5 +81,12 @@ class McpToken(ctx: Context) {
 
     private companion object {
         const val KEY_TOKEN = "http_bearer"
+
+        /**
+         * Process-wide lock. Class-level rather than per-instance because the
+         * service and the UI construct separate [McpToken] objects over the same
+         * encrypted file; `synchronized(this)` would let them race each other.
+         */
+        val LOCK = Any()
     }
 }
