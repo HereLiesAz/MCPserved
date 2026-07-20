@@ -17,6 +17,7 @@ the thing that says yes.
 | --- | --- |
 | [overview](overview.md) | What MCPserved is, the local-first thesis, the two-part system, and the two backends. |
 | [quickstart](quickstart.md) | The fastest path to a working setup: adb quick-connect, then the optional paired-app upgrade. |
+| [connect](connect.md) | One-click setup: deep links and the `mcpserved install` command for every supported MCP host. |
 | [desktop-server](desktop-server.md) | The `mcp/` package: install, build, run, environment variables, backend selection, pairing. |
 | [android-app](android-app.md) | The app: accessibility service, disclosure gate, arming, grants, sessions, revocation, boot behavior. |
 | [backends](backends.md) | Control layers — Accessibility, root, Shizuku, pure-adb — and the per-operation resolver. |

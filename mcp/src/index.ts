@@ -11,6 +11,7 @@ import { AdbLink } from "./adb-link.js";
 import type { Link } from "./link.js";
 import { buildTools, type Capabilities, type ToolDef } from "./tools.js";
 import { pair } from "./pair.js";
+import { install } from "./install.js";
 
 /**
  * Desktop MCP server for MCPserved.
@@ -81,6 +82,11 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (process.argv[2] === "install") {
+    await install(process.argv.slice(3));
+    return;
+  }
+
   const link = await chooseLink();
 
   /**
@@ -111,7 +117,7 @@ async function main(): Promise<void> {
   }
 
   const server = new Server(
-    { name: "mcpserved", version: "0.2.0" },
+    { name: "mcpserved", version: "0.3.0" },
     { capabilities: { tools: {} } },
   );
 
