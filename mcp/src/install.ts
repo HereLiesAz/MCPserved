@@ -44,6 +44,11 @@ interface Target {
 
 const SERVER_NAME = "mcpserved";
 
+/** A non-null, non-array object — the only shape we'll merge a server into. */
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
 function appData(): string {
   // %APPDATA% on Windows; the closest equivalents elsewhere.
   if (process.env.APPDATA) return process.env.APPDATA;
@@ -178,18 +183,24 @@ function writeConfig(
   let existed = false;
 
   if (existsSync(path)) {
+    let parsed: unknown;
     try {
-      root = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
+      parsed = JSON.parse(readFileSync(path, "utf8"));
     } catch {
       return "blocked";
     }
+    // Merge only into a JSON object. If the file parsed to an array, string, or
+    // number, it isn't a shape we understand — rewriting it would lose data, so
+    // treat it as blocked and let the caller print a snippet instead.
+    if (!isPlainObject(parsed)) return "blocked";
+    root = parsed;
     existed = true;
   }
 
-  const bucket =
-    root[key] && typeof root[key] === "object"
-      ? (root[key] as Record<string, unknown>)
-      : {};
+  // typeof null and typeof [] are both "object"; guard against both. An array
+  // here would accept the assignment but drop it on JSON.stringify.
+  const current = root[key];
+  const bucket = isPlainObject(current) ? current : {};
   const replacing = SERVER_NAME in bucket;
   bucket[SERVER_NAME] = entry;
   root[key] = bucket;
@@ -211,12 +222,17 @@ function installClaudeCode(launch: Launch): boolean {
   for (const [k, v] of Object.entries(launch.env)) cmd.push("-e", `${k}=${v}`);
   cmd.push("--", launch.command, ...launch.args);
 
+  // On Windows the global CLI is claude.cmd/.ps1; execFile resolves that name,
+  // whereas a bare "claude" fails with ENOENT. Elsewhere the binary is on PATH.
+  const binary = platform() === "win32" ? "claude.cmd" : "claude";
   try {
-    execFileSync("claude", cmd, { stdio: "ignore" });
+    execFileSync(binary, cmd, { stdio: "ignore" });
     console.log("  Claude Code       ✓ added via `claude mcp add` (user scope)");
     return true;
-  } catch {
-    console.log("  Claude Code       ! `claude` not found on PATH. Run this yourself:");
+  } catch (err) {
+    const notFound = (err as NodeJS.ErrnoException)?.code === "ENOENT";
+    const why = notFound ? "`claude` not found on PATH" : "`claude mcp add` failed";
+    console.log(`  Claude Code       ! ${why}. Run this yourself:`);
     console.log(`      claude ${cmd.map((c) => (c.includes(" ") ? `"${c}"` : c)).join(" ")}`);
     return false;
   }
@@ -337,20 +353,23 @@ async function pick(): Promise<string[]> {
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   const menu = ["claude-code", ...TARGETS.map((t) => t.id)];
 
-  console.log("\nWhich MCP host(s) should launch mcpserved?\n");
-  menu.forEach((id, i) => {
-    const label = id === "claude-code" ? "Claude Code" : TARGETS.find((t) => t.id === id)!.label;
-    console.log(`  ${i + 1}) ${label}`);
-  });
-  console.log("");
+  try {
+    console.log("\nWhich MCP host(s) should launch mcpserved?\n");
+    menu.forEach((id, i) => {
+      const label = id === "claude-code" ? "Claude Code" : TARGETS.find((t) => t.id === id)!.label;
+      console.log(`  ${i + 1}) ${label}`);
+    });
+    console.log("");
 
-  const answer = (await rl.question("Numbers (comma-separated), or 'all': ")).trim();
-  rl.close();
+    const answer = (await rl.question("Numbers (comma-separated), or 'all': ")).trim();
 
-  if (answer.toLowerCase() === "all") return menu;
-  return answer
-    .split(",")
-    .map((s) => Number(s.trim()))
-    .filter((n) => Number.isInteger(n) && n >= 1 && n <= menu.length)
-    .map((n) => menu[n - 1]);
+    if (answer.toLowerCase() === "all") return menu;
+    return answer
+      .split(",")
+      .map((s) => Number(s.trim()))
+      .filter((n) => Number.isInteger(n) && n >= 1 && n <= menu.length)
+      .map((n) => menu[n - 1]);
+  } finally {
+    rl.close();
+  }
 }
