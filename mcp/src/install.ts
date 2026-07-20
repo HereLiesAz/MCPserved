@@ -418,17 +418,28 @@ function parseConnectArgs(argv: string[]): ConnectOpts {
     help: false,
     names: [],
   };
-  for (let i = 0; i < argv.length; i++) {
+  // Consume the next arg as a flag's value, but only if it is not itself a flag.
+  // Without this, `--token --print` would take `--print` as the token and then
+  // never process it.
+  let i = 0;
+  const takeValue = (): string | undefined => {
+    const next = argv[i + 1];
+    if (next === undefined || next.startsWith("--")) return undefined;
+    i++;
+    return next;
+  };
+
+  for (; i < argv.length; i++) {
     const a = argv[i];
     switch (a) {
-      case "--token": o.token = argv[++i]; break;
+      case "--token": o.token = takeValue(); break;
       case "--port": {
-        const n = Number(argv[++i]);
+        const n = Number(takeValue());
         if (Number.isInteger(n) && n > 0 && n < 65536) o.port = n;
         break;
       }
-      case "--host": o.host = argv[++i]; break;
-      case "--serial": o.serial = argv[++i]; break;
+      case "--host": o.host = takeValue(); break;
+      case "--serial": o.serial = takeValue(); break;
       case "--no-forward": o.noForward = true; break;
       case "--print": o.print = true; break;
       case "--all": o.all = true; break;
