@@ -17,11 +17,14 @@ import com.hereliesaz.mcpserved.backend.ControlBackend
 import com.hereliesaz.mcpserved.backend.Resolver
 import com.hereliesaz.mcpserved.backend.RootBackend
 import com.hereliesaz.mcpserved.backend.ShizukuBackend
+import com.hereliesaz.mcpserved.crypto.McpToken
 import com.hereliesaz.mcpserved.crypto.Pairing
 import com.hereliesaz.mcpserved.grant.Enforcer
 import com.hereliesaz.mcpserved.grant.GrantStore
 import com.hereliesaz.mcpserved.grant.SessionLog
 import com.hereliesaz.mcpserved.transport.LocalServer
+import com.hereliesaz.mcpserved.transport.McpBridge
+import com.hereliesaz.mcpserved.transport.McpServer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -80,6 +83,8 @@ class ControlService : Service() {
         private set
     lateinit var server: LocalServer
         private set
+    lateinit var mcpServer: McpServer
+        private set
 
     private var wakeLock: PowerManager.WakeLock? = null
 
@@ -101,13 +106,23 @@ class ControlService : Service() {
         enforcer = Enforcer(resolver, grants, log)
         session = Session()
         pairing = Pairing(applicationContext)
-        server = LocalServer(pairing, Dispatcher(applicationContext, this), scope)
+
+        // One dispatcher behind both front doors: the desktop bridge's sealed
+        // loopback ([LocalServer]) and the device's own MCP-over-HTTP endpoint
+        // ([McpServer]). Both are just transports into the same enforcement.
+        val dispatcher = Dispatcher(applicationContext, this)
+        server = LocalServer(pairing, dispatcher, scope)
+        mcpServer = McpServer(
+            McpToken(applicationContext),
+            McpBridge(dispatcher) { resolver.hasRoot || resolver.hasShizuku },
+        )
 
         setArmed(true)
         createChannel()
         startForeground(NOTIFICATION_ID, buildNotification())
 
         server.start()
+        mcpServer.startServer()
         scope.launch { reaper() }
     }
 
@@ -132,6 +147,7 @@ class ControlService : Service() {
 
     override fun onDestroy() {
         endSession()
+        mcpServer.stopServer()
         scope.launch { server.stop() }
         scope.cancel()
         instance = null

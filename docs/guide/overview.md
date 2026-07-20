@@ -9,6 +9,13 @@ and executed there. The model sees one consistent device and a stable tool
 surface; underneath, the work is done either by plain `adb` or by an on-device
 application, and the tools cannot tell which.
 
+The MCP server the host connects to can be **the phone itself** — the app runs an
+MCP server on the device, and a host connects straight to it over HTTP — or **the
+desktop bridge**, a small Node process that speaks MCP on your computer and drives
+the phone. The device is the substance either way; the desktop bridge exists for
+the no-app adb quick-connect and for hosts that only launch stdio servers. See
+[connect](connect.md).
+
 ## The local-first thesis
 
 There is no relay and no cloud in the path, and no account to create. Control
@@ -35,11 +42,13 @@ lives on the device (paired app) or was made once by the user (adb).
 
 | Part | Directory | What it is |
 | --- | --- | --- |
-| Desktop MCP server | `mcp/` | A Node/TypeScript stdio MCP server. One device per process. Chooses a backend, exposes tools, carries requests. Not a Play app; a developer tool the user runs on their own computer. See [desktop-server](desktop-server.md). |
-| Android application | `app/` | The on-device half: the accessibility service, the backends, the grant store, the crypto, the loopback control server, and the UI. See [android-app](android-app.md). |
+| Android application | `app/` | The on-device half, and the substance: the accessibility service, the backends, the grant store, the crypto, the loopback control server, **its own MCP-over-HTTP server** (so the phone is itself an MCP endpoint), and the UI. See [android-app](android-app.md). |
+| Desktop bridge | `mcp/` | A Node/TypeScript stdio MCP server. One device per process. Chooses a backend, exposes tools, carries requests. Not a Play app; a developer tool the user runs on their own computer. See [desktop-server](desktop-server.md). |
 
-The desktop server is the only thing the MCP host launches. The Android app is
-optional — it is the upgrade, not a requirement.
+A host can connect **directly to the app's MCP server** (the device is the MCP
+endpoint), or launch the **desktop bridge**, which is the only path that needs no
+app installed — it drives the phone straight over `adb`. Neither holds authority
+the device does not grant. See [connect](connect.md).
 
 ## The two backends
 

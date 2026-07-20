@@ -6,12 +6,14 @@ import android.content.pm.ApplicationInfo
 import android.provider.Settings
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.hereliesaz.mcpserved.crypto.McpToken
 import com.hereliesaz.mcpserved.crypto.Pairing
 import com.hereliesaz.mcpserved.grant.ConsentStore
 import com.hereliesaz.mcpserved.grant.Grant
 import com.hereliesaz.mcpserved.grant.GrantStore
 import com.hereliesaz.mcpserved.service.ControlService
 import com.hereliesaz.mcpserved.service.McpAccessibilityService
+import com.hereliesaz.mcpserved.transport.McpServer
 import com.hereliesaz.mcpserved.transport.Scope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -69,6 +71,38 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     private val _isPaired = MutableStateFlow(pairing.isPaired)
     val isPaired: StateFlow<Boolean> = _isPaired
+
+    private val mcpToken = McpToken(app)
+
+    /**
+     * The device's own MCP-over-HTTP endpoint.
+     *
+     * Bound to loopback on the device; a host reaches it through an
+     * `adb forward tcp:PORT tcp:PORT` tunnel and connects to this URL. This is the
+     * direct path — the device is the MCP server, with no desktop process between
+     * it and the model's host.
+     */
+    val mcpEndpoint: String = "http://127.0.0.1:${McpServer.DEFAULT_HTTP_PORT}/mcp"
+
+    private val _mcpBearer = MutableStateFlow(mcpToken.value())
+    val mcpBearer: StateFlow<String> = _mcpBearer
+
+    /** A ready-to-paste MCP host config for the direct endpoint. */
+    fun mcpConfigJson(): String = """
+        {
+          "mcpServers": {
+            "mcpserved": {
+              "url": "$mcpEndpoint",
+              "headers": { "Authorization": "Bearer ${_mcpBearer.value}" }
+            }
+          }
+        }
+    """.trimIndent()
+
+    /** Mints a new bearer token, invalidating any host still using the old one. */
+    fun rotateMcpToken() {
+        _mcpBearer.value = mcpToken.rotate()
+    }
 
     /** True when the accessibility service is bound. Nothing works without it. */
     val a11yConnected: Boolean get() = McpAccessibilityService.instance != null

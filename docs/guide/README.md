@@ -1,7 +1,9 @@
 # MCPserved guide
 
-MCPserved is a desktop MCP server paired with an Android application that let an
-authorized client observe and control a phone. Everything is local: there is no
+MCPserved lets an authorized model observe and control an Android phone. The
+Android app is itself an MCP server — a host can connect straight to the device
+over HTTP — and a desktop bridge is available for the no-app `adb` quick-connect
+and for hosts that only launch stdio servers. Everything is local: there is no
 relay, no cloud, and no account in the path. Control travels a USB cable or an
 adb-over-Wi-Fi session the user set up themselves. The desktop server drives the
 device either straight over `adb` (a quick connect that needs no app installed)

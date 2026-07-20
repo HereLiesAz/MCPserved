@@ -1,25 +1,86 @@
-# Connect your AI — one-click setup
+# Connect your AI
 
-Getting a model to use MCPserved means registering the desktop server with the
-**MCP host** the model runs in (Claude Desktop, Cursor, VS Code, and the like).
-The host launches the server over stdio and exposes its tools to the model; the
-model then drives your phone by calling those tools. You register it once.
+There are two ways to put a model in front of MCPserved. They differ in **what
+acts as the MCP server**.
 
-There are two ways to do that in effectively one step: a **deep link** the host
-opens and writes for you, or the **`mcpserved install`** command, which writes the
-right config file for any supported host. Use whichever fits your host.
+1. **Direct — the device is the MCP server.** The app runs an MCP server on the
+   phone itself. A host connects straight to it over HTTP with a bearer token;
+   nothing else runs on your computer but the one `adb forward` that bridges to
+   the phone. This is the real thing — enforcement, tools, and the server all live
+   on the device.
+2. **Bridge — the desktop `mcpserved` server.** A small Node process on your
+   computer speaks MCP to the host and drives the phone either over the app's
+   sealed link or, with no app installed at all, straight over `adb`. Use it for
+   the zero-install adb quick-connect, or for hosts that only launch stdio servers.
 
-> One prerequisite the buttons can't do for you: the phone must be reachable by
-> `adb` (`adb devices` shows it in state `device` — enable USB debugging, or
-> `adb connect <ip>:5555` over Wi-Fi), and Node.js 20+ must be installed. The
-> deep links below launch the server with `npx -y mcpserved`, so no manual build
-> or global install is needed.
+Either way the phone is where authority lives. Pick by what your host supports.
 
-## The universal installer
+> Both paths need the phone reachable by `adb` — `adb devices` shows it in state
+> `device` (enable USB debugging, or `adb connect <ip>:5555` over Wi-Fi).
 
-One command registers the server with any host — it knows each host's config
-path, JSON key, and entry shape, and merges a single entry without touching your
-other servers:
+## 1. Direct — connect a host to the device
+
+The on-device server speaks MCP's Streamable HTTP. It binds to loopback on the
+phone, so you bridge one port from your computer and point the host at it.
+
+### Steps
+
+1. **Install the app, clear the disclosure, enable the accessibility service, and
+   Arm it** (see [android-app](android-app.md)). The MCP server runs while the app
+   is armed.
+2. **Get the endpoint and token.** On the app's **Pair** screen, under *Connect a
+   model*, is the endpoint (`http://127.0.0.1:8791/mcp`) and a **bearer token**.
+   Tap **Copy host config** for a ready-to-paste block, or **Copy token only**.
+3. **Bridge the port** from your computer to the phone:
+
+   ```bash
+   adb forward tcp:8791 tcp:8791
+   ```
+
+4. **Point your host at it.** Hosts that accept a remote/HTTP MCP server with
+   custom headers (Cursor, VS Code, Windsurf) take this directly:
+
+   ```json
+   {
+     "mcpServers": {
+       "mcpserved": {
+         "url": "http://127.0.0.1:8791/mcp",
+         "headers": { "Authorization": "Bearer <token from the app>" }
+       }
+     }
+   }
+   ```
+
+   VS Code uses its `servers` map with `"type": "http"`; the shape is otherwise the
+   same. **Rotate token** in the app mints a new one and invalidates the old.
+
+### Hosts that only launch stdio servers
+
+Claude Desktop and Claude Code connect to *stdio* servers, not HTTP URLs. Reach
+the device's HTTP endpoint through the `mcp-remote` stdio↔HTTP shim:
+
+```json
+{
+  "mcpServers": {
+    "mcpserved": {
+      "command": "npx",
+      "args": [
+        "-y", "mcp-remote", "http://127.0.0.1:8791/mcp",
+        "--header", "Authorization: Bearer <token from the app>"
+      ]
+    }
+  }
+}
+```
+
+Or just use the bridge below — for these hosts it is often simpler.
+
+## 2. Bridge — the desktop `mcpserved` server
+
+The desktop server is the stdio MCP endpoint some hosts want, and the only path
+that needs **no app installed** (it drives the phone straight over `adb`). One
+command registers it with a host — it knows each host's config path, JSON key, and
+entry shape, and merges without touching your other servers:
 
 ```bash
 # from a checkout:
@@ -33,63 +94,40 @@ npx mcpserved install --all           # every supported host found
 npx mcpserved install --print cursor  # just show the JSON, write nothing
 ```
 
-`--npx` makes the written config launch via `npx -y mcpserved` (short,
-self-updating) instead of this build's absolute path. If a host's config file
-exists but isn't plain JSON, the installer refuses to rewrite it and prints the
-snippet to paste instead.
+If a host's config file exists but isn't plain JSON, the installer refuses to
+rewrite it and prints the snippet to paste instead.
 
-## Per-host one-click
+### Per-host one-click (bridge)
 
-| Host | One-click method |
+| Host | One-click |
 | --- | --- |
-| **Cursor** | Open [**Add to Cursor**](cursor://anysphere.cursor-deeplink/mcp/install?name=mcpserved&config=eyJjb21tYW5kIjoibnB4IiwiYXJncyI6WyIteSIsIm1jcHNlcnZlZCJdfQ==), or `npx mcpserved install cursor`. |
-| **VS Code** (Copilot) | Open [**Add to VS Code**](vscode:mcp/install?%7B%22name%22%3A%22mcpserved%22%2C%22command%22%3A%22npx%22%2C%22args%22%3A%5B%22-y%22%2C%22mcpserved%22%5D%7D), or `npx mcpserved install vscode`. Needs Copilot Agent mode with MCP. |
-| **VS Code Insiders** | Open [**Add to VS Code Insiders**](vscode-insiders:mcp/install?%7B%22name%22%3A%22mcpserved%22%2C%22command%22%3A%22npx%22%2C%22args%22%3A%5B%22-y%22%2C%22mcpserved%22%5D%7D), or `npx mcpserved install vscode-insiders`. |
-| **Claude Desktop** | No deep link — run `npx mcpserved install claude-desktop`, then restart Claude Desktop. |
-| **Claude Code** | `npx mcpserved install claude-code` (runs `claude mcp add` for you), or directly: `claude mcp add mcpserved -s user -- npx -y mcpserved`. |
+| **Cursor** | [**Add to Cursor**](cursor://anysphere.cursor-deeplink/mcp/install?name=mcpserved&config=eyJjb21tYW5kIjoibnB4IiwiYXJncyI6WyIteSIsIm1jcHNlcnZlZCJdfQ==), or `npx mcpserved install cursor`. |
+| **VS Code** (Copilot) | [**Add to VS Code**](vscode:mcp/install?%7B%22name%22%3A%22mcpserved%22%2C%22command%22%3A%22npx%22%2C%22args%22%3A%5B%22-y%22%2C%22mcpserved%22%5D%7D), or `npx mcpserved install vscode`. |
+| **VS Code Insiders** | [**Add to VS Code Insiders**](vscode-insiders:mcp/install?%7B%22name%22%3A%22mcpserved%22%2C%22command%22%3A%22npx%22%2C%22args%22%3A%5B%22-y%22%2C%22mcpserved%22%5D%7D), or `npx mcpserved install vscode-insiders`. |
+| **Claude Desktop** | `npx mcpserved install claude-desktop`, then restart it. |
+| **Claude Code** | `npx mcpserved install claude-code`, or `claude mcp add mcpserved -s user -- npx -y mcpserved`. |
 | **Windsurf** | `npx mcpserved install windsurf`. |
 | **Cline** (VS Code) | `npx mcpserved install cline`. |
 
-The deep links use the raw `npx -y mcpserved` launch, which assumes the package
-is installed or fetchable from the npm registry. When running from a local
-checkout instead, use `node dist/index.js install <host>` so the config points at
-your build.
+When you have the app installed and paired, the bridge upgrades to it
+automatically (`MCPSERVED_MODE=auto`); without a pairing it falls back to adb. See
+[desktop-server](desktop-server.md).
 
-## What a written entry looks like
+## After it's connected — either path
 
-Most hosts read an `mcpServers` map; the entry is just a command and its args:
-
-```json
-{
-  "mcpServers": {
-    "mcpserved": {
-      "command": "npx",
-      "args": ["-y", "mcpserved"],
-      "env": { "MCPSERVED_ADB_SERIAL": "192.168.1.5:5555" }
-    }
-  }
-}
-```
-
-`env` is optional — include `MCPSERVED_ADB_SERIAL` only when more than one device
-is attached. VS Code uses a `servers` map instead and wants `"type": "stdio"` on
-the entry; the installer emits the right shape per host, so you rarely write this
-by hand.
-
-## After it's registered
-
-Reload or restart the host, then just ask the model — for example, *"Use
-mcpserved to open Settings and turn on Wi-Fi."* Under the hood the model calls
-`capabilities`, then `session_begin`, then `ui_tree`, and acts from there. See
-[mcp-tools](mcp-tools.md) for the full tool surface, and
-[quickstart](quickstart.md) for the adb-vs-paired-app choice.
+Reload or restart the host, then just ask the model — for example, *"Use mcpserved
+to open Settings and turn on Wi-Fi."* Under the hood the model calls
+`capabilities`, then `session_begin`, then `ui_tree`, and acts from there. The tool
+surface is identical whichever path you took; see [mcp-tools](mcp-tools.md).
 
 ## Hosts that can't use this
 
-MCPserved is a **local stdio** server that drives a phone attached to your
-machine. Hosts that only accept **remote HTTP connectors** — the ChatGPT web and
-desktop apps' custom connectors, and Google's Gemini — cannot launch a local
-process, and exposing an adb-driving server at a public URL would defeat the
-whole local-only design. Use one of the local MCP hosts above. If you need a
-remote surface, that is a deliberate, separate piece of work (an authenticated
-HTTP bridge), not a checkbox — and not something to point at your daily phone.
+MCPserved is a **local** MCP server — it drives a phone attached to your machine,
+whether the server runs on the phone (direct) or on your computer (bridge). Hosts
+that only accept **remote, public HTTP connectors** — the ChatGPT web and desktop
+apps' custom connectors, and Google's Gemini — cannot launch a local process, and
+the device's endpoint is bound to loopback for a reason: exposing an
+adb-driving server at a public URL would defeat the whole local-only design. Use
+one of the local hosts above. A public, authenticated bridge is a deliberate,
+separate piece of work — not a checkbox, and not something to point at your daily
+phone.
