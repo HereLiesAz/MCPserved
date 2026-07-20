@@ -196,10 +196,13 @@ jobs:
             }
 
       # ------------------------------------------------------------------
-      # RELEASE STEPS (Only run on PUSH, not Pull Requests)
+      # RELEASE STEPS (Only run on a direct push to main — never on PRs or
+      # feature branches. Publishing the prerelease tag on every branch push
+      # force-updates the shared latest-debug tag and triggers flaky asset
+      # uploads; scoping to main keeps CI green on feature branches.)
       # ------------------------------------------------------------------
       - name: Prepare Release Variables
-        if: success() && github.event_name == 'push'
+        if: success() && github.event_name == 'push' && github.ref == 'refs/heads/main'
         id: release_vars
         run: |
           # version.properties is the SINGLE SOURCE OF TRUTH for the version. The gradle build already
@@ -247,7 +250,7 @@ jobs:
           cd build_tools_package && zip -r ../build-tools.zip . && cd ..
 
       - name: Publish Release
-        if: success() && github.event_name == 'push'
+        if: success() && github.event_name == 'push' && github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
