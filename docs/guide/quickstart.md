@@ -60,8 +60,10 @@ MCPSERVED_ADB_SERIAL=192.168.1.5:5555 node dist/index.js   # or a USB serial
 
 ### 3. Point an MCP host at it
 
-The server speaks MCP over **stdio**. Configure your MCP host to launch it. A
-typical host config entry:
+The server speaks MCP over **stdio**. Configure your MCP host to launch it. The
+fastest way is one command — `npx mcpserved install <host>` writes the right
+config for you (or use the deep-link buttons); see [connect](connect.md) for
+every host. To wire it by hand, a typical host config entry:
 
 ```json
 {

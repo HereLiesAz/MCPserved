@@ -29,6 +29,14 @@ Scripts:
 | `npm start` | `node dist/index.js`. |
 | `npm run pair` | `node dist/index.js pair` — the pairing flow. |
 
+Subcommands (`node dist/index.js <cmd>`, or `mcpserved <cmd>` when installed):
+
+| Subcommand | Does |
+| --- | --- |
+| _(none)_ | Runs the MCP server on stdio. |
+| `pair` | One-time device pairing for the app backend. |
+| `install [hosts…]` | Registers the server with an MCP host's config. `--all`, `--npx`, `--print`, `--list`. See [connect](connect.md). |
+
 Or install globally:
 
 ```bash
