@@ -12,7 +12,6 @@
 # missing-class warnings rather than shipping the annotation jars.
 -dontwarn com.google.errorprone.annotations.**
 -dontwarn javax.annotation.**
--dontwarn javax.annotation.concurrent.**
 
 # kotlinx.serialization generates serializers referenced only by name.
 -keepattributes *Annotation*, InnerClasses
