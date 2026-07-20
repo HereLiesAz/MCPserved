@@ -102,6 +102,35 @@ authenticated peer may actually do.
 Connections are served **one at a time**, strictly serial; a second dialer waits
 in the backlog.
 
+## The direct MCP endpoint — bearer token over loopback HTTP
+
+The app also runs an MCP server directly (`transport/McpServer.kt`), so a host can
+connect to the phone without the desktop bridge. It speaks MCP's Streamable HTTP
+and binds to **`127.0.0.1`**, port `8791` by default — the same loopback posture
+as the sealed-frame server, reached the same way, through an
+`adb forward tcp:8791 tcp:8791` tunnel. Nothing off-device can connect.
+
+Loopback is again **not** the authorization boundary; the **bearer token** is
+(`crypto/McpToken.kt`). Every request must carry `Authorization: Bearer <token>`;
+one that does not gets `401` and no other signal. The token is 256 bits of
+`SecureRandom`, generated on the device, kept in `EncryptedSharedPreferences`, and
+shown only in the app for the operator to copy. It is compared in constant time
+(`MessageDigest.isEqual`) so a wrong guess leaks nothing through timing.
+**Rotating the token** invalidates any host still configured with the old one —
+the HTTP path's equivalent of rotating the pairing identity.
+
+This endpoint carries the **same [Dispatcher](protocol.md)** as the sealed path:
+the session gate, the grant table, and `Enforcer.guard` bracketing apply
+identically. Only the transport and its authenticator differ — sealed frames under
+a paired X25519 secret for the desktop bridge, a bearer token over loopback HTTP
+for a direct host. Both are transports into one enforcement; neither decides
+anything.
+
+Unlike the sealed-frame transport, the HTTP endpoint is not itself encrypted — it
+relies on the loopback binding (traffic never leaves the device) and the token.
+Reaching it over adb-over-Wi-Fi inherits adb's own transport security, exactly as
+the sealed path's adb tunnel does.
+
 ## Key storage
 
 Pairing keys live in `EncryptedSharedPreferences` on the device (AES256-SIV keys /

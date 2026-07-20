@@ -78,6 +78,11 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
 
+    // Embedded HTTP server for the on-device MCP endpoint (McpServer). Tiny,
+    // dependency-free, and pure Java — it handles HTTP/1.1 framing so the app
+    // only implements the MCP JSON-RPC on top.
+    implementation("org.nanohttpd:nanohttpd:2.3.1")
+
     // Full BouncyCastle. The platform ships a stripped build under the same
     // provider name; McpApplication swaps it out at startup.
     implementation("org.bouncycastle:bcprov-jdk18on:1.85")

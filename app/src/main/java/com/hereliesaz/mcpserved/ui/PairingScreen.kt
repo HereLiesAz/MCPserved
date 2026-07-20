@@ -25,6 +25,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.qrcode.QRCodeWriter
@@ -48,6 +50,8 @@ import android.graphics.Color as AndroidColor
 fun PairingScreen(vm: MainViewModel) {
     val payload by vm.pairPayload.collectAsState()
     val paired by vm.isPaired.collectAsState()
+    val bearer by vm.mcpBearer.collectAsState()
+    val clipboard = LocalClipboardManager.current
     var scanError by remember { mutableStateOf<String?>(null) }
 
     val scanner = rememberLauncherForActivityResult(ScanContract()) { result ->
@@ -68,19 +72,79 @@ fun PairingScreen(vm: MainViewModel) {
             .padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
+        // ---- Primary: the device is itself the MCP server --------------------
         Text(
-            if (paired) "Paired" else "Not paired",
+            "Connect a model",
             style = MaterialTheme.typography.displaySmall
         )
 
         Spacer(Modifier.height(4.dp))
 
         Text(
+            "This device is itself an MCP server. Point a host at the endpoint " +
+                "below, with the token as a bearer header — no desktop server " +
+                "needed. Reach it over an `adb forward` tunnel (USB or Wi-Fi).",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+
+        Spacer(Modifier.height(16.dp))
+
+        Text(vm.mcpEndpoint, style = MaterialTheme.typography.titleMedium)
+
+        Spacer(Modifier.height(12.dp))
+
+        Text(
+            "Bearer token",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Text(bearer, style = MaterialTheme.typography.bodySmall)
+
+        Spacer(Modifier.height(16.dp))
+
+        Button(
+            onClick = { clipboard.setText(AnnotatedString(vm.mcpConfigJson())) },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Copy host config")
+        }
+
+        Spacer(Modifier.height(8.dp))
+
+        OutlinedButton(
+            onClick = { clipboard.setText(AnnotatedString(bearer)) },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Copy token only")
+        }
+
+        Spacer(Modifier.height(8.dp))
+
+        OutlinedButton(
+            onClick = vm::rotateMcpToken,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Rotate token")
+        }
+
+        Spacer(Modifier.height(40.dp))
+
+        // ---- Optional: the desktop bridge, paired by QR ----------------------
+        Text(
+            if (paired) "Desktop bridge · paired" else "Desktop bridge · optional",
+            style = MaterialTheme.typography.titleLarge
+        )
+
+        Spacer(Modifier.height(4.dp))
+
+        Text(
             if (paired) {
-                "A server holds the matching key. It still cannot touch anything " +
-                    "without a grant."
+                "A desktop server holds the matching key. It still cannot touch " +
+                    "anything without a grant."
             } else {
-                "Run `npx mcpserved pair` and give it the string below."
+                "Only for the desktop `mcpserved` bridge — the adb quick-connect " +
+                    "path. Run `npx mcpserved pair` and give it the string below."
             },
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant

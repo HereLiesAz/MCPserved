@@ -12,6 +12,8 @@ import com.hereliesaz.mcpserved.transport.GrantEntry
 import com.hereliesaz.mcpserved.transport.Request
 import com.hereliesaz.mcpserved.transport.Response
 import com.hereliesaz.mcpserved.transport.Scope
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /**
  * Turns a decrypted [Request] into a [Response].
@@ -46,13 +48,25 @@ class Dispatcher(
     private val enforcer: Enforcer get() = service.enforcer
     private val session: Session get() = service.session
 
-    suspend fun handle(req: Request): Response {
+    /**
+     * Serializes dispatch across every transport.
+     *
+     * Two front doors now share this dispatcher: the sealed loopback server and
+     * the device's own MCP-over-HTTP server, whose HTTP worker pool could
+     * otherwise run calls concurrently. That must not happen. [Enforcer.guard]
+     * brackets each mutating action with a foreground read before and after, and
+     * that check means nothing if a second action can slip in between them. One
+     * action at a time is a correctness requirement here, not a throughput choice.
+     */
+    private val mutex = Mutex()
+
+    suspend fun handle(req: Request): Response = mutex.withLock {
         // Session gate. Fails closed for everything that touches the device.
-        if (req !is Request.Capabilities && req !is Request.SessionBegin) {
-            if (!session.isActive) return Response.Err("no active session")
+        if (req !is Request.Capabilities && req !is Request.SessionBegin && !session.isActive) {
+            return@withLock Response.Err("no active session")
         }
 
-        return when (req) {
+        when (req) {
             is Request.Capabilities -> capabilities()
             is Request.SessionBegin -> sessionBegin(req)
             is Request.SessionEnd -> sessionEnd()

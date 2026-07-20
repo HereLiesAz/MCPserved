@@ -10,6 +10,7 @@ import android.content.Intent
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.hereliesaz.mcpserved.R
 import com.hereliesaz.mcpserved.backend.A11yBackend
@@ -17,11 +18,14 @@ import com.hereliesaz.mcpserved.backend.ControlBackend
 import com.hereliesaz.mcpserved.backend.Resolver
 import com.hereliesaz.mcpserved.backend.RootBackend
 import com.hereliesaz.mcpserved.backend.ShizukuBackend
+import com.hereliesaz.mcpserved.crypto.McpToken
 import com.hereliesaz.mcpserved.crypto.Pairing
 import com.hereliesaz.mcpserved.grant.Enforcer
 import com.hereliesaz.mcpserved.grant.GrantStore
 import com.hereliesaz.mcpserved.grant.SessionLog
 import com.hereliesaz.mcpserved.transport.LocalServer
+import com.hereliesaz.mcpserved.transport.McpBridge
+import com.hereliesaz.mcpserved.transport.McpServer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -47,6 +51,7 @@ import kotlinx.coroutines.launch
 class ControlService : Service() {
 
     companion object {
+        private const val TAG = "ControlService"
         private const val CHANNEL_ID = "mcpserved.session"
         private const val NOTIFICATION_ID = 0x4D43
 
@@ -80,6 +85,8 @@ class ControlService : Service() {
         private set
     lateinit var server: LocalServer
         private set
+    lateinit var mcpServer: McpServer
+        private set
 
     private var wakeLock: PowerManager.WakeLock? = null
 
@@ -101,13 +108,28 @@ class ControlService : Service() {
         enforcer = Enforcer(resolver, grants, log)
         session = Session()
         pairing = Pairing(applicationContext)
-        server = LocalServer(pairing, Dispatcher(applicationContext, this), scope)
+
+        // One dispatcher behind both front doors: the desktop bridge's sealed
+        // loopback ([LocalServer]) and the device's own MCP-over-HTTP endpoint
+        // ([McpServer]). Both are just transports into the same enforcement.
+        val dispatcher = Dispatcher(applicationContext, this)
+        server = LocalServer(pairing, dispatcher, scope)
+        mcpServer = McpServer(
+            McpToken(applicationContext),
+            McpBridge(dispatcher) { resolver.hasRoot || resolver.hasShizuku },
+        )
 
         setArmed(true)
         createChannel()
         startForeground(NOTIFICATION_ID, buildNotification())
 
         server.start()
+        if (!mcpServer.startServer()) {
+            // The port is taken or the bind was refused. The device's direct MCP
+            // endpoint is unavailable this run; the sealed-frame server for the
+            // desktop bridge is unaffected, so the service stays useful.
+            Log.w(TAG, "on-device MCP endpoint failed to bind; the desktop bridge still works")
+        }
         scope.launch { reaper() }
     }
 
@@ -132,7 +154,11 @@ class ControlService : Service() {
 
     override fun onDestroy() {
         endSession()
-        scope.launch { server.stop() }
+        // Guarded: onCreate may have thrown before these lateinit fields were
+        // assigned, and onDestroy still runs. Touching them unguarded would raise
+        // UninitializedPropertyAccessException and mask the original failure.
+        if (::mcpServer.isInitialized) mcpServer.stopServer()
+        if (::server.isInitialized) scope.launch { server.stop() }
         scope.cancel()
         instance = null
         super.onDestroy()
