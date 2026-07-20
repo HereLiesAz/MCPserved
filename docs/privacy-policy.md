@@ -2,7 +2,7 @@
 
 **MCPserved**
 
-_Last updated: 2026-07-19_
+_Last updated: 2026-07-20_
 
 MCPserved is a local device-control tool. It is built so that there is almost
 nothing to have a privacy policy about: the app collects no personal data, has
