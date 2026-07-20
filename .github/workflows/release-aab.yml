@@ -125,7 +125,7 @@ jobs:
         # exists no matter what happens next.
         uses: actions/upload-artifact@v7
         with:
-          name: graffitixr-release-aab
+          name: MCPserved-release-aab
           path: app/build/outputs/bundle/release/*.aab
           if-no-files-found: error
 
