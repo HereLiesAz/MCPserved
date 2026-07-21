@@ -182,7 +182,6 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_21
         targetCompatibility = JavaVersion.VERSION_21
-
     }
 
     buildFeatures {
@@ -213,6 +212,9 @@ android {
     }
 }
 
+kotlin {
+    jvmToolchain(21)
+}
 
 tasks.withType<KotlinCompile>().configureEach {
     compilerOptions {
