@@ -1,21 +1,27 @@
 # MCPserved
 
-A desktop MCP server and an Android application that let an authorized client
-observe and control a phone — over plain `adb` for a quick connect, or through
-the on-device app for a richer, per-package-granted surface.
+A **Compose desktop application** and an Android application that let an
+authorized client observe and control a phone — over plain `adb` for a quick
+connect, or through the on-device app for a richer, per-package-granted surface.
+
+The desktop side is a Compose for Desktop app that ships as a native installer
+for Windows, macOS, and Linux. It doubles as the MCP server: launched with no
+arguments it opens a window for pairing, Wi-Fi discovery, and one-click host
+setup; launched with `stdio` it is the headless server an AI host spawns and
+speaks to over stdin/stdout.
 
 Everything is local. There is no relay and no cloud in the path: control travels
-a USB cable or an adb-over-Wi-Fi session the user set up themselves. The desktop
-server holds no authority of its own — it sits downstream of a language model's
-output, which makes it the component least suited to being the thing that says
-yes.
+a USB cable, an adb-over-Wi-Fi session, or a direct LAN socket to a phone the
+desktop found over mDNS. The desktop server holds no authority of its own — it
+sits downstream of a language model's output, which makes it the component least
+suited to being the thing that says yes.
 
 ## Shape
 
 ~~~
-                          ┌─ adb: input / uiautomator / screencap        (quick connect)
-Claude ─ MCP server ─────┤
-        (stdio)           └─ adb forward → 127.0.0.1 → on-device app      (paired upgrade)
+                          ┌─ adb: input / uiautomator / screencap          (quick connect)
+Claude ─ MCP server ─────┼─ mDNS discovery → direct LAN socket → app       (auto-discovery)
+        (stdio)           └─ adb forward → 127.0.0.1 → on-device app        (paired upgrade)
 ~~~
 
 Two backends behind one interface. The default drives the device straight over
@@ -25,10 +31,23 @@ reachable, the server upgrades to it for the semantic accessibility tree,
 per-package grants, and the notification mirror. `MCPSERVED_MODE` pins the choice
 to `adb` or `app`; the default, `auto`, prefers the app and falls back.
 
-The app never connects out. It binds a control server to `127.0.0.1` on the
-phone; `adb forward` bridges a desktop port onto it. Loopback is not routable, so
-nothing off-device can reach it, and the pairing key authenticates the one peer
-that may.
+The app never connects out. It binds a control server on the phone; `adb forward`
+bridges a desktop port onto its loopback, and — once armed — it also advertises
+itself on the LAN over mDNS (`_mcpserved._tcp`) so the desktop can find it and
+dial it directly, no cable and no manual `ip:port`. Either way the sealed-frame
+pairing key is the boundary: discovery only reveals an address, and an address is
+useless to anything that does not hold the paired secret. `auto` mode prefers a
+discovered LAN device, then an `adb forward` tunnel, then falls back to raw adb.
+
+## Finding each other
+
+The desktop app and the phone find each other over Wi-Fi with no configuration.
+The phone registers a `_mcpserved._tcp` DNS-SD service the moment its control
+server is armed, carrying its device id and port; the desktop browses for it
+(JmDNS) and lists every device on the network. Pick one and it connects straight
+to the advertised address. mDNS over Wi-Fi is the discovery path because it is
+the one mechanism both a JVM desktop and Android implement reliably and
+symmetrically; Bluetooth has no dependable cross-platform desktop story.
 
 ## Control layers
 
@@ -77,30 +96,48 @@ the paired app.
 
 ## Setup
 
-**Quick connect (adb).** Enable USB debugging on the phone and attach it, or pair
-it over Wi-Fi with `adb connect <ip>:5555`. Then point the MCP host at the server:
+**Install the desktop app.** Grab the installer for your OS from the releases
+page — `.msi` (Windows), `.dmg` (macOS), `.deb`/`.rpm` (Linux) — or build it:
 
 ~~~bash
-cd mcp
-npm install
-npm run build
-node dist/index.js          # MCPSERVED_MODE defaults to auto → adb when unpaired
+./gradlew :desktop:packageDistributionForCurrentOS
+# installers land in desktop/build/compose/binaries/main/
 ~~~
 
-Set `MCPSERVED_ADB_SERIAL` to select a device when more than one is attached (a
-USB serial, or an `ip:port` for Wi-Fi), and `MCPSERVED_ADB` to point at a
-non-PATH adb binary.
+Launch it with no arguments and it opens a window with four screens:
+
+- **Devices** — every phone on the Wi-Fi network, discovered automatically, plus
+  a Test-connection button that reports the device's capabilities.
+- **Pair** — paste the string under the phone's QR code, press Pair, and scan the
+  QR that appears back on the phone. One-time, both keys out of band.
+- **AI Hosts** — one click wires this server into Claude Desktop, Claude Code,
+  Cursor, VS Code, VS Code Insiders, Windsurf, or Cline. "Connect all popular
+  AIs" does the lot. No config-file editing.
+- **Log** — a running trace of what happened.
+
+**Connect an AI (one click).** The AI Hosts screen registers this app in the
+chosen host's MCP config, pointed at the installed executable in `stdio` mode.
+The same thing from a terminal:
+
+~~~bash
+mcpserved install --all      # or: mcpserved install cursor claude-code
+~~~
+
+**Quick connect (adb).** No app needed: enable USB debugging on the phone and
+attach it, or pair over Wi-Fi with `adb connect <ip>:5555`. With no pairing on
+file, `auto` mode drives the device straight over `adb`. `MCPSERVED_ADB_SERIAL`
+selects a device when more than one is attached (a USB serial, or an `ip:port`);
+`MCPSERVED_ADB` points at a non-PATH adb binary.
 
 **Paired app (upgrade).** Install the app, enable the accessibility service, arm
-it, and grant packages. Then pair — a mutual QR exchange, both public keys out of
-band in both directions so nothing sits in the exchange that establishes trust:
+it, and grant packages, then pair from the desktop's Pair screen (or
+`mcpserved pair`). With a pairing on file the server uses the app automatically —
+it finds the phone on the LAN over mDNS, or sets up the `adb forward` tunnel
+itself, whichever answers first.
 
-~~~bash
-npx mcpserved pair
-~~~
-
-With a pairing on file and the device reachable, the server uses the app
-automatically; it sets up the `adb forward` tunnel itself on connect.
+The headless server is the same binary: `mcpserved stdio` is what an AI host
+spawns. `MCPSERVED_MODE` pins the backend to `adb` or `app`; the default `auto`
+prefers the app and falls back.
 
 ## Known constraints
 
@@ -129,6 +166,15 @@ automatically; it sets up the `adb forward` tunnel itself on connect.
 ## Layout
 
 ~~~
-app/     Android application — service, backends, grants, crypto, loopback server, UI
-mcp/     Desktop MCP server — stdio transport, tool schemas, adb + app backends
+app/      Android application — service, backends, grants, crypto, loopback server, UI
+desktop/  Compose desktop app — GUI (pairing, discovery, one-click hosts) and the
+          stdio MCP server, packaged as native installers for Windows/macOS/Linux
+mcp/      Node reference server — the original TypeScript stdio implementation the
+          Kotlin desktop side was ported from; kept as an executable spec
 ~~~
+
+The desktop side lives in `desktop/` as a Compose for Desktop module. It shares
+the sealed-frame wire format (X25519 / HKDF-SHA256 / ChaCha20-Poly1305) with the
+Android app byte for byte, so the Kotlin `crypto/` package and the device's
+`crypto/` package must stay in lockstep. `.github/workflows/desktop.yml` builds
+the installers on a three-OS matrix (jpackage can only target its host).

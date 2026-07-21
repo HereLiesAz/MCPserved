@@ -23,6 +23,7 @@ import com.hereliesaz.mcpserved.crypto.Pairing
 import com.hereliesaz.mcpserved.grant.Enforcer
 import com.hereliesaz.mcpserved.grant.GrantStore
 import com.hereliesaz.mcpserved.grant.SessionLog
+import com.hereliesaz.mcpserved.transport.LanAdvertiser
 import com.hereliesaz.mcpserved.transport.LocalServer
 import com.hereliesaz.mcpserved.transport.McpBridge
 import com.hereliesaz.mcpserved.transport.McpServer
@@ -87,6 +88,8 @@ class ControlService : Service() {
         private set
     lateinit var mcpServer: McpServer
         private set
+    lateinit var advertiser: LanAdvertiser
+        private set
 
     private var wakeLock: PowerManager.WakeLock? = null
 
@@ -114,6 +117,7 @@ class ControlService : Service() {
         // ([McpServer]). Both are just transports into the same enforcement.
         val dispatcher = Dispatcher(applicationContext, this)
         server = LocalServer(pairing, dispatcher, scope)
+        advertiser = LanAdvertiser(applicationContext, pairing.deviceId)
         mcpServer = McpServer(
             McpToken(applicationContext),
             McpBridge(dispatcher) { resolver.hasRoot || resolver.hasShizuku },
@@ -130,6 +134,19 @@ class ControlService : Service() {
             // desktop bridge is unaffected, so the service stays useful.
             Log.w(TAG, "on-device MCP endpoint failed to bind; the desktop bridge still works")
         }
+
+        // Advertise on the LAN only while paired and listening, so a desktop can
+        // discover and dial the device directly over Wi-Fi. An unpaired or torn-
+        // down server withdraws the record — there is nothing to reach then.
+        scope.launch {
+            server.state.collect { state ->
+                when (state) {
+                    LocalServer.State.LISTENING, LocalServer.State.CONNECTED -> advertiser.start()
+                    else -> advertiser.stop()
+                }
+            }
+        }
+
         scope.launch { reaper() }
     }
 
@@ -157,6 +174,7 @@ class ControlService : Service() {
         // Guarded: onCreate may have thrown before these lateinit fields were
         // assigned, and onDestroy still runs. Touching them unguarded would raise
         // UninitializedPropertyAccessException and mask the original failure.
+        if (::advertiser.isInitialized) advertiser.stop()
         if (::mcpServer.isInitialized) mcpServer.stopServer()
         if (::server.isInitialized) scope.launch { server.stop() }
         scope.cancel()
