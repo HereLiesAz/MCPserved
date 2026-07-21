@@ -115,6 +115,17 @@ Launch it with no arguments and it opens a window with four screens:
   AIs" does the lot. No config-file editing.
 - **Log** — a running trace of what happened.
 
+It wears the same dark plum-and-amber skin and the same launcher icon as the
+phone app, so the two read as one product.
+
+**Always-on (optional).** The Devices screen can install a small background
+service — a systemd user unit on Linux, a LaunchAgent on macOS, the current-user
+Run key on Windows — that keeps looking for the phone even when the window is
+closed. It browses mDNS continuously and caches the device's address, so the
+moment an AI host launches the stdio server the connection is already warm
+instead of paying a discovery sweep. `mcpserved service install` does the same
+from a terminal; `mcpserved service` runs the daemon in the foreground.
+
 **Connect an AI (one click).** The AI Hosts screen registers this app in the
 chosen host's MCP config, pointed at the installed executable in `stdio` mode.
 The same thing from a terminal:

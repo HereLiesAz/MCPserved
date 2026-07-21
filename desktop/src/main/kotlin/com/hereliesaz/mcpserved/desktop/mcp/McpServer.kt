@@ -2,6 +2,7 @@ package com.hereliesaz.mcpserved.desktop.mcp
 
 import com.hereliesaz.mcpserved.desktop.config.Config
 import com.hereliesaz.mcpserved.desktop.config.ConfigStore
+import com.hereliesaz.mcpserved.desktop.config.DiscoveryCache
 import com.hereliesaz.mcpserved.desktop.discovery.DeviceDiscovery
 import com.hereliesaz.mcpserved.desktop.net.AdbLink
 import com.hereliesaz.mcpserved.desktop.net.AppLink
@@ -71,8 +72,22 @@ object McpServer {
         return AdbLink()
     }
 
-    /** Try the discovered LAN address first, then the adb-forward loopback tunnel. */
+    /**
+     * Try, in order: the address the background service already found (instant,
+     * no browse), a live mDNS browse, then the adb-forward loopback tunnel.
+     */
     private fun appLinkFor(config: Config): Link? {
+        // Warm path: the always-on service keeps a fresh address on disk, so a
+        // freshly-spawned stdio server connects without waiting to discover.
+        DiscoveryCache.fresh(config.deviceId, System.currentTimeMillis())?.let { cached ->
+            val app = AppLink(config, Target.lan(cached.host, cached.port))
+            if (probe(app)) {
+                log("connected to device via cached address: ${cached.host}:${cached.port}")
+                return app
+            }
+            app.close()
+        }
+
         discoverTarget(config.deviceId)?.let { target ->
             val app = AppLink(config, target)
             if (probe(app)) {

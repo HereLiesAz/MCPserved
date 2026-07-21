@@ -15,6 +15,7 @@ import com.hereliesaz.mcpserved.desktop.net.Target
 import com.hereliesaz.mcpserved.desktop.net.boolOr
 import com.hereliesaz.mcpserved.desktop.net.isOk
 import com.hereliesaz.mcpserved.desktop.pair.PairingFlow
+import com.hereliesaz.mcpserved.desktop.service.ServiceInstaller
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -70,9 +71,15 @@ class AppController(private val scope: CoroutineScope) {
     val hostOutcomes = mutableStateListOf<String>()
     val logLines = mutableStateListOf<String>()
 
+    var serviceInstalled by mutableStateOf(false)
+        private set
+    var serviceDetail by mutableStateOf("checking…")
+        private set
+
     init {
         toggleDiscovery(true)
         scope.launch { refreshAdb() }
+        refreshService()
     }
 
     private suspend fun onMain(block: () -> Unit) = withContext(Dispatchers.Main) { block() }
@@ -235,6 +242,33 @@ class AppController(private val scope: CoroutineScope) {
         is Hosts.Outcome.Blocked -> "${o.label}: config is not plain JSON — open it and paste the snippet manually"
         is Hosts.Outcome.Unavailable -> "${o.label}: not available on this OS"
         is Hosts.Outcome.External -> "${o.label}: ${o.message}"
+    }
+
+    fun refreshService() {
+        scope.launch {
+            val status = withContext(Dispatchers.IO) { ServiceInstaller.status() }
+            onMain { serviceInstalled = status.installed; serviceDetail = status.detail }
+        }
+    }
+
+    fun installService() {
+        scope.launch {
+            onMain { busy = true }
+            val msg = withContext(Dispatchers.IO) { ServiceInstaller.install() }
+            onMain { busy = false }
+            log("service: $msg")
+            refreshService()
+        }
+    }
+
+    fun removeService() {
+        scope.launch {
+            onMain { busy = true }
+            val msg = withContext(Dispatchers.IO) { ServiceInstaller.uninstall() }
+            onMain { busy = false }
+            log("service: $msg")
+            refreshService()
+        }
     }
 
     fun dispose() {

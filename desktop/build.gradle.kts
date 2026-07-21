@@ -55,17 +55,23 @@ compose.desktop {
 
             modules("java.naming", "java.management", "jdk.crypto.ec")
 
+            // The launcher icon is derived from the Android app's, so the phone
+            // and the desktop present the same mark. jpackage wants a different
+            // container per OS: .png (Linux), .ico (Windows), .icns (macOS).
             linux {
                 menuGroup = "Development"
+                iconFile.set(project.file("icons/icon.png"))
             }
             windows {
                 menuGroup = "MCPserved"
                 // A stable UUID keeps upgrades in place instead of installing
                 // side-by-side copies.
                 upgradeUuid = "6f3a1c2e-8d54-4f2b-9a1d-2c7e5b0d9f11"
+                iconFile.set(project.file("icons/icon.ico"))
             }
             macOS {
                 bundleID = "com.hereliesaz.mcpserved.desktop"
+                iconFile.set(project.file("icons/icon.icns"))
             }
         }
     }
