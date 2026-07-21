@@ -87,8 +87,8 @@ android {
         applicationId = "com.hereliesaz.mcpserved"
         minSdk = 29
         targetSdk = 37
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = currentVersionCode
+        versionName = currentVersionName
 
         // Crash auto-reporting: CrashUploadWorker files a GitHub issue containing the crash log, using
         // this token. It is read at BUILD time from the GH_TOKEN env var (the same as
