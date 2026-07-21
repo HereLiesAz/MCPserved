@@ -89,7 +89,56 @@ android {
         versionCode = 1
         versionName = "0.1.0"
     }
+  // Crash auto-reporting: CrashUploadWorker files a GitHub issue containing the crash log, using
+        // this token. It is read at BUILD time from the GH_TOKEN env var (the same one
+        // settings.gradle.kts uses for the GitHub Packages maven repo), with a gradle-property
+        // fallback. When neither is present (typical local dev) it stays empty and CrashUploadWorker
+        // no-ops — so nothing breaks locally and no token is ever committed to Git.
+        //
+        // SECURITY: a non-empty token here is embedded in the shipped APK's BuildConfig and CAN be
+        // extracted by anyone who decompiles the app. Use a FINE-GRAINED token scoped to ONLY
+        // "Issues: write" on this single repo (HereLiesAz/GraffitiXR) — never a broad/classic PAT —
+        // so that a leaked token can, at worst, open issues on this one repo.
+        // GitHub tokens are [A-Za-z0-9_] only (ghp_* / github_pat_*), so no string escaping is needed.
+        val crashReportToken = System.getenv("GH_TOKEN")
+            ?: (project.findProperty("GH_TOKEN") as String?)
+            ?: ""
+        buildConfigField("String", "GH_TOKEN", "\"$crashReportToken\"")
+    }
 
+    // Release signing is a property of the project, not of each CI invocation. The keystore and
+    // credentials come from the environment: CI decodes the base64 `KEYSTORE_RAW` secret to
+    // app/keystore.jks and exports KEYSTORE_PASSWORD / KEY_ALIAS / KEY_PASSWORD (see the
+    // release-apk / release-aab / merged-build workflows). KEYSTORE_FILE may override the path.
+    //
+    // When no keystore is present (local dev without the secrets) the "release" config is simply
+    // not created — `findByName` then returns null below, so release builds stay unsigned and debug
+    // builds keep the default debug key. Nothing breaks, and no plaintext credentials live in Git.
+    val envKeystorePassword = System.getenv("KEYSTORE_PASSWORD")
+    val envKeyAlias = System.getenv("KEY_ALIAS")
+    val envKeyPassword = System.getenv("KEY_PASSWORD")
+    // Resolve KEYSTORE_FILE against the repo root so a relative CI path can't become app/app/...;
+    // default to this module's keystore.jks. Enable signing only when the keystore AND all three
+    // credentials are present, so a stray local keystore without env credentials still falls back
+    // gracefully (configuration succeeds; the build doesn't blow up at execution on missing creds).
+    val releaseKeystore = (System.getenv("KEYSTORE_FILE")?.let { rootProject.file(it) } ?: file("keystore.jks"))
+        .takeIf {
+            it.exists() &&
+                !envKeystorePassword.isNullOrEmpty() &&
+                !envKeyAlias.isNullOrEmpty() &&
+                !envKeyPassword.isNullOrEmpty()
+        }
+
+    signingConfigs {
+        if (releaseKeystore != null) {
+            create("release") {
+                storeFile = releaseKeystore
+                storePassword = envKeystorePassword
+                keyAlias = envKeyAlias
+                keyPassword = envKeyPassword
+            }
+        }
+    }
     buildTypes {
         release {
             isMinifyEnabled = true
