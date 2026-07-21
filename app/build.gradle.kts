@@ -223,7 +223,7 @@ androidComponents {
         variant.outputs.forEach { output ->
             val version = variant.outputs.first().versionName.get()
             val code = variant.outputs.first().versionCode.get()
-            val apkName = "GraffitiXR-${variant.name}-$version.$code.apk"
+            val apkName = "MCPserved-${variant.name}-$version.$code.apk"
             (output as? com.android.build.api.variant.impl.VariantOutputImpl)?.outputFileName?.set(apkName)
         }
     }
