@@ -35,7 +35,8 @@ Subcommands (`node dist/index.js <cmd>`, or `mcpserved <cmd>` when installed):
 | --- | --- |
 | _(none)_ | Runs the MCP server on stdio. |
 | `pair` | One-time device pairing for the app backend. |
-| `install [hosts…]` | Registers the server with an MCP host's config. `--all`, `--npx`, `--print`, `--list`. See [connect](connect.md). |
+| `install [hosts…]` | Registers the **desktop bridge** with an MCP host's config. `--all`, `--npx`, `--print`, `--list`. See [connect](connect.md). |
+| `connect [hosts…]` | Wires a host **straight to the device's own MCP server**: sets up `adb forward` and writes each host's direct config (native `url`+headers, or the `mcp-remote` shim). `--token`, `--host`, `--serial`, `--no-forward`, `--all`, `--print`, `--list`. See [connect](connect.md). |
 
 Or install globally:
 

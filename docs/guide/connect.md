@@ -23,7 +23,30 @@ Either way the phone is where authority lives. Pick by what your host supports.
 The on-device server speaks MCP's Streamable HTTP. It binds to loopback on the
 phone, so you bridge one port from your computer and point the host at it.
 
-### Steps
+### Automated — `mcpserved connect`
+
+One command does the whole direct setup: it brings up the `adb forward` tunnel and
+writes each host's config — a native `url` + `Authorization` header where the host
+supports it (Cursor, VS Code), or the `mcp-remote` stdio↔HTTP shim where it does
+not (Claude Desktop, Claude Code, Windsurf, Cline).
+
+```bash
+# Arm the app, then copy the token from its Pair screen (Copy token only).
+npx mcpserved connect                       # interactive: pick hosts, paste token
+npx mcpserved connect cursor --token <t>    # name hosts + pass the token
+npx mcpserved connect --all --token <t>     # every supported host found
+npx mcpserved connect cursor --host <ip>:8791 --token <t>   # over the network, no adb
+npx mcpserved connect vscode --token <t> --print            # show the JSON, write nothing
+```
+
+`--token` also reads `$MCPSERVED_TOKEN`, or prompts if neither is set. `--serial`
+targets a specific device for the forward; `--no-forward` skips it. It merges into
+a host's existing config without touching your other servers, and refuses to
+rewrite a config file that isn't plain JSON.
+
+### By hand
+
+The same thing, step by step:
 
 1. **Install the app, clear the disclosure, enable the accessibility service, and
    Arm it** (see [android-app](android-app.md)). The MCP server runs while the app
