@@ -32,6 +32,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 
 /**
@@ -138,14 +140,14 @@ class ControlService : Service() {
         // Advertise on the LAN only while paired and listening, so a desktop can
         // discover and dial the device directly over Wi-Fi. An unpaired or torn-
         // down server withdraws the record — there is nothing to reach then.
-        scope.launch {
-            server.state.collect { state ->
+        server.state
+            .onEach { state ->
                 when (state) {
                     LocalServer.State.LISTENING, LocalServer.State.CONNECTED -> advertiser.start()
                     else -> advertiser.stop()
                 }
             }
-        }
+            .launchIn(scope)
 
         scope.launch { reaper() }
     }
