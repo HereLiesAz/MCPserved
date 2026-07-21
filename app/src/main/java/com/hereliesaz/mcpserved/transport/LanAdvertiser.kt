@@ -37,7 +37,10 @@ class LanAdvertiser(
     /** Registers the service. Idempotent; a second call while registered is a no-op. */
     @Synchronized
     fun start() {
-        if (registered || nsd == null) return
+        if (registered) return
+        // Bind to a local non-null handle: a nullable member property does not
+        // smart-cast inside the runCatching lambda below.
+        val manager = nsd ?: return
 
         val info = NsdServiceInfo().apply {
             // A human-readable name so a person picking from the desktop's device
@@ -73,7 +76,7 @@ class LanAdvertiser(
         // register (which the daemon would reject).
         listener = l
         registered = true
-        runCatching { nsd.registerService(info, NsdManager.PROTOCOL_DNS_SD, l) }
+        runCatching { manager.registerService(info, NsdManager.PROTOCOL_DNS_SD, l) }
             .onFailure {
                 registered = false
                 listener = null
