@@ -38,7 +38,10 @@ class DesktopDiscovery(context: Context) {
 
     @Synchronized
     fun start() {
-        if (nsd == null || listener != null) return
+        if (listener != null) return
+        // Local non-null handle: a nullable member does not smart-cast inside the
+        // runCatching lambda below.
+        val manager = nsd ?: return
         val l = object : NsdManager.DiscoveryListener {
             override fun onStartDiscoveryFailed(serviceType: String, errorCode: Int) {
                 Log.w(TAG, "start discovery failed: $errorCode")
@@ -57,7 +60,7 @@ class DesktopDiscovery(context: Context) {
             }
         }
         listener = l
-        runCatching { nsd.discoverServices(SERVICE_TYPE, NsdManager.PROTOCOL_DNS_SD, l) }
+        runCatching { manager.discoverServices(SERVICE_TYPE, NsdManager.PROTOCOL_DNS_SD, l) }
             .onFailure { Log.w(TAG, "discoverServices threw: ${it.message}") }
     }
 
