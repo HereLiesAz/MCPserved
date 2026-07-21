@@ -21,3 +21,8 @@
 -keepclasseswithmembers class com.hereliesaz.mcpserved.** {
     kotlinx.serialization.KSerializer serializer(...);
 }
+
+# Fix missing class references in Tink (often transitively included by other libs)
+-dontwarn com.google.errorprone.annotations.**
+-dontwarn javax.annotation.**
+-dontwarn javax.annotation.concurrent.**

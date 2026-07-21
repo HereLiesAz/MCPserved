@@ -1,6 +1,7 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
-    id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.serialization")
     id("org.jetbrains.kotlin.plugin.compose")
 }
@@ -88,9 +89,9 @@ android {
         targetSdk = 37
         versionCode = 1
         versionName = "0.1.0"
-    }
-  // Crash auto-reporting: CrashUploadWorker files a GitHub issue containing the crash log, using
-        // this token. It is read at BUILD time from the GH_TOKEN env var (the same one
+
+        // Crash auto-reporting: CrashUploadWorker files a GitHub issue containing the crash log, using
+        // this token. It is read at BUILD time from the GH_TOKEN env var (the same as
         // settings.gradle.kts uses for the GitHub Packages maven repo), with a gradle-property
         // fallback. When neither is present (typical local dev) it stays empty and CrashUploadWorker
         // no-ops — so nothing breaks locally and no token is ever committed to Git.
@@ -159,9 +160,8 @@ android {
         jvmToolchain(21)
     }
 
-
-
     buildFeatures {
+        buildConfig = true
         compose = true
     }
 
