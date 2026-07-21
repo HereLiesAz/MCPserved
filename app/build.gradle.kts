@@ -90,8 +90,25 @@ android {
         versionCode = currentVersionCode
         versionName = currentVersionName
 
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        vectorDrawables {
+            useSupportLibrary = true
+        }
+
+        ndk {
+            // ARM only, matching :core:nativebridge. Keeps the OpenCV Prefab prebuilts (which ship
+            // all four ABIs) from packaging x86 .so files that would have no matching libgraffitixr.so.
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+        }
+
+        externalNativeBuild {
+            cmake {
+                cppFlags += "-std=c++17"
+            }
+        }
+
         // Crash auto-reporting: CrashUploadWorker files a GitHub issue containing the crash log, using
-        // this token. It is read at BUILD time from the GH_TOKEN env var (the same as
+        // this token. It is read at BUILD time from the GH_TOKEN env var (the same one
         // settings.gradle.kts uses for the GitHub Packages maven repo), with a gradle-property
         // fallback. When neither is present (typical local dev) it stays empty and CrashUploadWorker
         // no-ops — so nothing breaks locally and no token is ever committed to Git.
@@ -140,6 +157,7 @@ android {
             }
         }
     }
+
     buildTypes {
         release {
             isMinifyEnabled = true
@@ -148,31 +166,68 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            // Null (unsigned) only when no keystore was supplied — e.g. a local build without secrets.
+            signingConfig = signingConfigs.findByName("release")
+        }
+        debug {
+            // The auto-published CI build (merged-build.yml) assembles the debug variant. Sign it with
+            // the RELEASE key when available so its signature stays stable across builds (in-place
+            // updates keep working); fall back to the default debug key for local development.
+            signingConfig = signingConfigs.findByName("release") ?: signingConfig
         }
     }
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_21
         targetCompatibility = JavaVersion.VERSION_21
-    }
 
-    kotlin {
-        jvmToolchain(21)
     }
 
     buildFeatures {
-        buildConfig = true
         compose = true
+        buildConfig = true
     }
 
+
     packaging {
-        resources.excludes += setOf(
-            "/META-INF/{AL2.0,LGPL2.1}",
-            "META-INF/versions/9/OSGI-INF/MANIFEST.MF"
-        )
+        resources {
+            excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        }
+        jniLibs {
+            pickFirsts += "**/libc++_shared.so"
+        }
+    }
+
+    // App Bundle configuration. These splits are ON by default for an AAB; we set
+    // them explicitly so the modular-delivery intent is documented in the build.
+    // Play generates optimized per-device APKs from `bundleRelease`, so the large
+    // per-ABI native payload (:core:nativebridge / OpenCV / LiteRT NPU runtimes)
+    // is only downloaded for the device's actual ABI — no separate artifacts to
+    // build. See docs/RELEASE.md.
+    bundle {
+        abi { enableSplit = true }
+        density { enableSplit = true }
+        language { enableSplit = true }
     }
 }
 
+
+tasks.withType<KotlinCompile>().configureEach {
+    compilerOptions {
+        jvmTarget.set(JvmTarget.JVM_21)
+    }
+}
+
+androidComponents {
+    onVariants { variant ->
+        variant.outputs.forEach { output ->
+            val version = variant.outputs.first().versionName.get()
+            val code = variant.outputs.first().versionCode.get()
+            val apkName = "GraffitiXR-${variant.name}-$version.$code.apk"
+            (output as? com.android.build.api.variant.impl.VariantOutputImpl)?.outputFileName?.set(apkName)
+        }
+    }
+}
 dependencies {
     val composeBom = platform("androidx.compose:compose-bom:2024.12.01")
     implementation(composeBom)
