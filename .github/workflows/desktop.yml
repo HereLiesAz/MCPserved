@@ -1,0 +1,123 @@
+name: Build Desktop Executables
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Installer version (must start with a non-zero major, e.g. 1.0.0)"
+        required: false
+        default: "1.0.0"
+  push:
+    tags:
+      - "desktop-v*"
+
+# Least-privilege default; the release job elevates its own token.
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Package (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            label: linux
+          - os: macos-latest
+            label: macos
+          - os: windows-latest
+            label: windows
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v5
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          cache-read-only: false
+
+      # jpackage builds .deb with dpkg + fakeroot and .rpm with rpmbuild; neither
+      # rpmbuild nor fakeroot is guaranteed on the runner image.
+      - name: Install Linux packaging tools
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y fakeroot binutils rpm
+
+      # jpackage rejects a zero major version on Windows and macOS. A pushed
+      # `desktop-vX.Y.Z` tag sets the version; a manual run takes the input; a
+      # plain branch build falls back to 1.0.0.
+      - name: Resolve installer version
+        id: ver
+        shell: bash
+        run: |
+          REF="${GITHUB_REF_NAME}"
+          if [[ "${GITHUB_REF_TYPE}" == "tag" && "$REF" == desktop-v* ]]; then
+            echo "version=${REF#desktop-v}" >> "$GITHUB_OUTPUT"
+          elif [[ -n "${{ github.event.inputs.version }}" ]]; then
+            echo "version=${{ github.event.inputs.version }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=1.0.0" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build native distributables
+        shell: bash
+        run: |
+          chmod +x ./gradlew || true
+          ./gradlew :desktop:packageDistributionForCurrentOS \
+            -PdesktopPackageVersion=${{ steps.ver.outputs.version }} \
+            --stacktrace
+
+      - name: Collect installers
+        shell: bash
+        run: |
+          mkdir -p dist
+          # dmg / msi / deb / rpm land under the compose binaries tree.
+          find desktop/build/compose/binaries/main -type f \
+            \( -name '*.dmg' -o -name '*.msi' -o -name '*.exe' -o -name '*.deb' -o -name '*.rpm' \) \
+            -exec cp {} dist/ \; || true
+          ls -la dist
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: mcpserved-desktop-${{ matrix.label }}
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    name: Attach installers to release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/desktop-v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all installers
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          shopt -s globstar nullglob
+          FILES=(artifacts/**/*)
+          echo "Releasing ${#FILES[@]} files under $TAG"
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            gh release upload "$TAG" "${FILES[@]}" --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$TAG" "${FILES[@]}" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "MCPserved Desktop $TAG" \
+              --notes "Native desktop installers for Windows, macOS, and Linux."
+          fi

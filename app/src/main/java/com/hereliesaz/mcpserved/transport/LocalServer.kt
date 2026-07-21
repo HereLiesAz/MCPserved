@@ -26,17 +26,19 @@ import java.net.Socket
  * Accepts the desktop server on a loopback port and pumps frames through it.
  *
  * This is the inverse of the relay the app used to dial. There is no carrier NAT
- * to defeat and no cloud in the path: the socket is bound to `127.0.0.1`, so the
- * only thing that can reach it is another process on the device — in practice the
- * desktop MCP server, arriving through an `adb forward tcp:$PORT tcp:$PORT`
- * tunnel the operator set up over USB or adb-over-Wi-Fi. Nothing off-device can
- * connect, because loopback is not routable.
+ * to defeat and no cloud in the path. The socket binds all interfaces, so it is
+ * reachable two ways: through an `adb forward tcp:$PORT tcp:$PORT` tunnel onto
+ * loopback (USB or adb-over-Wi-Fi), and directly on the LAN by a desktop that
+ * found this device over mDNS (see [LanAdvertiser]). The wildcard bind is what
+ * makes the second path possible; it still accepts the loopback path adbd dials.
  *
- * Loopback is not, by itself, an authorization boundary — any app on the device
- * can also open `127.0.0.1:$PORT`. Authorization is the pairing key: a connection
- * that cannot produce frames sealed under the shared secret gets no answer and no
- * acknowledgement that anything is listening. The grant table then decides, per
- * package, what an authenticated peer may actually do.
+ * The bind is not, by itself, an authorization boundary — any process on the
+ * device, and now any host on the LAN, can open the port. Authorization is the
+ * pairing key: a connection that cannot produce frames sealed under the shared
+ * secret gets no answer and no acknowledgement that anything is listening. The
+ * grant table then decides, per package, what an authenticated peer may actually
+ * do. Broadening the bind from loopback to the LAN widens who can *knock*, not
+ * who can *in*: an unpaired knock is met with the same silence it always was.
  *
  * Frames are handled strictly one at a time and one connection at a time. The
  * protocol matches responses to requests by ordering, and the device dispatches
@@ -105,10 +107,12 @@ class LocalServer(
                 withContext(Dispatchers.IO) {
                     ServerSocket().apply {
                         reuseAddress = true
-                        // Bind IPv4 loopback explicitly. getLoopbackAddress() can
-                        // resolve to ::1, but adbd dials 127.0.0.1 for a forwarded
-                        // port, so an IPv6-only bind would never receive it.
-                        bind(InetSocketAddress(InetAddress.getByName("127.0.0.1"), port))
+                        // Bind the IPv4 wildcard (0.0.0.0). This accepts the LAN
+                        // path a discovered desktop dials directly *and* the
+                        // 127.0.0.1 path adbd forwards onto — an IPv6-only or
+                        // loopback-only bind would miss one of them. The pairing
+                        // key, not the bind address, is the boundary.
+                        bind(InetSocketAddress(InetAddress.getByName("0.0.0.0"), port))
                     }
                 }
             }.getOrElse {
