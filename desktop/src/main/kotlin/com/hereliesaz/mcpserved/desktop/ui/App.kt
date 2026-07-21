@@ -32,7 +32,6 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -40,6 +39,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -58,12 +58,17 @@ import com.hereliesaz.mcpserved.desktop.hosts.Hosts
  */
 fun launchGui() = application {
     val state = rememberWindowState(width = 1000.dp, height = 720.dp)
-    Window(onCloseRequest = ::exitApplication, title = "MCPserved", state = state) {
+    Window(
+        onCloseRequest = ::exitApplication,
+        title = "MCPserved",
+        state = state,
+        icon = painterResource("icon.png"),
+    ) {
         val scope = rememberCoroutineScope()
         val controller = remember { AppController(scope) }
         DisposableEffect(Unit) { onDispose { controller.dispose() } }
 
-        MaterialTheme(colorScheme = darkColorScheme()) {
+        McpTheme {
             Surface(modifier = Modifier.fillMaxSize()) {
                 Row(Modifier.fillMaxSize()) {
                     Rail(controller)
@@ -184,6 +189,35 @@ private fun DevicesScreen(controller: AppController) {
                         fontFamily = FontFamily.Monospace,
                         style = MaterialTheme.typography.bodySmall,
                     )
+                }
+            }
+        }
+
+        Spacer(Modifier.height(24.dp))
+        Card(Modifier.fillMaxWidth()) {
+            Row(
+                Modifier.fillMaxWidth().padding(16.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("Background service", style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        "Keeps looking for the phone even when this window is closed, so a " +
+                            "connection is always ready. ${controller.serviceDetail}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Spacer(Modifier.width(12.dp))
+                if (controller.serviceInstalled) {
+                    OutlinedButton(onClick = { controller.removeService() }, enabled = !controller.busy) {
+                        Text("Remove")
+                    }
+                } else {
+                    FilledTonalButton(onClick = { controller.installService() }, enabled = !controller.busy) {
+                        Text("Run at startup")
+                    }
                 }
             }
         }

@@ -3,6 +3,8 @@ package com.hereliesaz.mcpserved.desktop
 import com.hereliesaz.mcpserved.desktop.hosts.Hosts
 import com.hereliesaz.mcpserved.desktop.mcp.McpServer
 import com.hereliesaz.mcpserved.desktop.pair.PairingFlow
+import com.hereliesaz.mcpserved.desktop.service.ServiceDaemon
+import com.hereliesaz.mcpserved.desktop.service.ServiceInstaller
 import com.hereliesaz.mcpserved.desktop.ui.launchGui
 
 /**
@@ -20,6 +22,7 @@ import com.hereliesaz.mcpserved.desktop.ui.launchGui
 fun main(args: Array<String>) {
     when (args.firstOrNull()?.lowercase()) {
         "stdio", "serve" -> McpServer.run()
+        "service" -> cliService(args.drop(1))
         "pair" -> cliPair()
         "install" -> cliInstall(args.drop(1))
         "--help", "-h", "help" -> printUsage()
@@ -31,16 +34,37 @@ fun main(args: Array<String>) {
     }
 }
 
+/**
+ * `service` with no argument runs the always-on discovery daemon in the
+ * foreground (this is what the OS service manager launches). The sub-verbs
+ * register or remove that daemon as a per-user OS service.
+ */
+private fun cliService(rest: List<String>) {
+    when (rest.firstOrNull()?.lowercase()) {
+        null, "run" -> ServiceDaemon.run()
+        "install", "enable" -> println(ServiceInstaller.install())
+        "uninstall", "remove", "disable" -> println(ServiceInstaller.uninstall())
+        "status" -> {
+            val s = ServiceInstaller.status()
+            println(if (s.installed) "installed — ${s.detail}" else "not installed")
+        }
+        else -> System.err.println("unknown service command: ${rest.first()}")
+    }
+}
+
 private fun printUsage() {
     println(
         """
         MCPserved desktop — control an authorized Android device from an AI host.
 
         Usage:
-          mcpserved                 open the desktop app (pairing, discovery, host setup)
-          mcpserved stdio           run as an MCP server over stdio (what AI hosts launch)
-          mcpserved pair            pair with a device from the terminal
-          mcpserved install [ids]   register with AI hosts (default: all detected)
+          mcpserved                  open the desktop app (pairing, discovery, host setup)
+          mcpserved stdio            run as an MCP server over stdio (what AI hosts launch)
+          mcpserved service          run the always-on discovery daemon in the foreground
+          mcpserved service install  register the daemon as a per-user OS service
+          mcpserved service status   report whether the service is installed
+          mcpserved pair             pair with a device from the terminal
+          mcpserved install [ids]    register with AI hosts (default: all detected)
 
         Hosts: ${Hosts.targets.joinToString(", ") { it.id }}, claude-code
         """.trimIndent(),
