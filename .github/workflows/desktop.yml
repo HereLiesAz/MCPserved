@@ -1,15 +1,28 @@
 name: Build Desktop Executables
 
+# Desktop installers are built every time the Android app is — the triggers here
+# mirror merged-build.yml (push to any branch, PRs into main, manual dispatch),
+# plus an explicit `desktop-v*` tag for a versioned standalone release. jpackage
+# can only target the OS it runs on, so the build fans out across a Windows /
+# macOS / Linux matrix.
 on:
+  push:
+    branches: [ "**" ]
+    tags: [ "desktop-v*" ]
+  pull_request:
+    branches: [ "main" ]
   workflow_dispatch:
     inputs:
       version:
         description: "Installer version (must start with a non-zero major, e.g. 1.0.0)"
         required: false
-        default: "1.0.0"
-  push:
-    tags:
-      - "desktop-v*"
+        default: ""
+
+# Cancel superseded runs on the same ref, matching the APK workflow so feature
+# branches don't pile up three-OS matrix builds.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 # Least-privilege default; the release job elevates its own token.
 permissions:
@@ -17,7 +30,7 @@ permissions:
 
 jobs:
   build:
-    name: Package (${{ matrix.os }})
+    name: Package (${{ matrix.label }})
     strategy:
       fail-fast: false
       matrix:
@@ -44,6 +57,7 @@ jobs:
         uses: gradle/actions/setup-gradle@v6
         with:
           cache-read-only: false
+          dependency-graph: disabled
 
       # jpackage builds .deb with dpkg + fakeroot and .rpm with rpmbuild; neither
       # rpmbuild nor fakeroot is guaranteed on the runner image.
@@ -51,21 +65,27 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y fakeroot binutils rpm
 
-      # jpackage rejects a zero major version on Windows and macOS. A pushed
-      # `desktop-vX.Y.Z` tag sets the version; a manual run takes the input; a
-      # plain branch build falls back to 1.0.0.
+      # jpackage rejects a zero major version on Windows and macOS, but the
+      # Android versionName sits at 0.x. A `desktop-vX.Y.Z` tag sets the version
+      # verbatim; a manual run can override it; otherwise it is derived from
+      # version.properties with the major floored to 1.
       - name: Resolve installer version
         id: ver
         shell: bash
         run: |
-          REF="${GITHUB_REF_NAME}"
-          if [[ "${GITHUB_REF_TYPE}" == "tag" && "$REF" == desktop-v* ]]; then
-            echo "version=${REF#desktop-v}" >> "$GITHUB_OUTPUT"
+          if [[ "${GITHUB_REF_TYPE}" == "tag" && "${GITHUB_REF_NAME}" == desktop-v* ]]; then
+            V="${GITHUB_REF_NAME#desktop-v}"
           elif [[ -n "${{ github.event.inputs.version }}" ]]; then
-            echo "version=${{ github.event.inputs.version }}" >> "$GITHUB_OUTPUT"
+            V="${{ github.event.inputs.version }}"
           else
-            echo "version=1.0.0" >> "$GITHUB_OUTPUT"
+            MAJOR=$(grep '^versionMajor=' version.properties | cut -d'=' -f2 | tr -d '\r ')
+            MINOR=$(grep '^versionMinor=' version.properties | cut -d'=' -f2 | tr -d '\r ')
+            PATCH=$(grep '^versionPatch=' version.properties | cut -d'=' -f2 | tr -d '\r ')
+            [[ "$MAJOR" == "0" || -z "$MAJOR" ]] && MAJOR=1
+            V="${MAJOR}.${MINOR:-0}.${PATCH:-0}"
           fi
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "Installer version: $V"
 
       - name: Build native distributables
         shell: bash
@@ -79,7 +99,6 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist
-          # dmg / msi / deb / rpm land under the compose binaries tree.
           find desktop/build/compose/binaries/main -type f \
             \( -name '*.dmg' -o -name '*.msi' -o -name '*.exe' -o -name '*.deb' -o -name '*.rpm' \) \
             -exec cp {} dist/ \; || true
@@ -92,32 +111,71 @@ jobs:
           path: dist/*
           if-no-files-found: error
 
+  # On a push to main, attach the installers to the same release the APK lands on
+  # (merged-build.yml publishes latest-debug-v<MAJOR>.<MINOR>), so every APK build
+  # ships its matching desktop executables. A desktop-v* tag gets its own release.
   release:
     name: Attach installers to release
     needs: build
-    if: startsWith(github.ref, 'refs/tags/desktop-v')
+    if: >-
+      github.event_name == 'push' &&
+      (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/desktop-v'))
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
       - name: Download all installers
         uses: actions/download-artifact@v4
         with:
           path: artifacts
 
-      - name: Publish release
+      - name: Resolve release tag
+        id: tag
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+            echo "standalone=true" >> "$GITHUB_OUTPUT"
+          else
+            MAJOR=$(grep '^versionMajor=' version.properties | cut -d'=' -f2 | tr -d '\r ')
+            MINOR=$(grep '^versionMinor=' version.properties | cut -d'=' -f2 | tr -d '\r ')
+            echo "tag=latest-debug-v${MAJOR}.${MINOR}" >> "$GITHUB_OUTPUT"
+            echo "standalone=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish installers
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ github.ref_name }}
+          TAG: ${{ steps.tag.outputs.tag }}
+          STANDALONE: ${{ steps.tag.outputs.standalone }}
+        shell: bash
         run: |
           shopt -s globstar nullglob
           FILES=(artifacts/**/*)
-          echo "Releasing ${#FILES[@]} files under $TAG"
+          if [ ${#FILES[@]} -eq 0 ]; then
+            echo "No installers to publish."; exit 0
+          fi
+          echo "Publishing ${#FILES[@]} installers to $TAG"
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            # The release already exists (the APK job on main, or a prior run) —
+            # add/replace only the desktop installers, leaving the APK untouched.
             gh release upload "$TAG" "${FILES[@]}" --repo "$GITHUB_REPOSITORY" --clobber
-          else
+          elif [ "$STANDALONE" = "true" ]; then
             gh release create "$TAG" "${FILES[@]}" \
               --repo "$GITHUB_REPOSITORY" \
               --title "MCPserved Desktop $TAG" \
               --notes "Native desktop installers for Windows, macOS, and Linux."
+          else
+            # Main-branch run that raced ahead of the APK release job. Create the
+            # shared prerelease tag; the APK job's `gh release edit`/upload later
+            # coexists (different asset names).
+            gh release create "$TAG" "${FILES[@]}" \
+              --repo "$GITHUB_REPOSITORY" \
+              --prerelease \
+              --target "$GITHUB_SHA" \
+              --title "Latest Debug Build ($TAG)" \
+              --notes "Auto-build from commit $GITHUB_SHA"
           fi
