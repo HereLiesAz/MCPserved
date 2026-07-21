@@ -25,17 +25,21 @@ object HostConfigs {
     )
 
     private fun nativeUrl(key: String, vscode: Boolean, endpoint: String, token: String): String {
-        val typeLine = if (vscode) "\n          \"type\": \"http\"," else ""
-        return """
+        // Insert the optional type line via a placeholder replaced AFTER trimIndent.
+        // Interpolating a value that contains a newline before trimIndent would make
+        // its short indent the common minimum and mis-strip every other line.
+        val typeLine = if (vscode) "\n      \"type\": \"http\"," else ""
+        val template = """
             {
               "$key": {
-                "mcpserved": {$typeLine
+                "mcpserved": {<TYPE_LINE>
                   "url": "$endpoint",
                   "headers": { "Authorization": "Bearer $token" }
                 }
               }
             }
         """.trimIndent()
+        return template.replace("<TYPE_LINE>", typeLine)
     }
 
     private fun shim(endpoint: String, token: String): String = """

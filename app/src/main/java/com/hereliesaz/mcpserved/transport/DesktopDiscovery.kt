@@ -17,6 +17,12 @@ import java.util.concurrent.ConcurrentHashMap
  * the desktop advertises itself, and this lists every one on the network. It is
  * informational on the phone, which is the server rather than the client, but it
  * turns "is my desktop even seeing me?" from a guess into something visible.
+ *
+ * Resolution is serialized. Before API 34 `NsdManager` allows only one
+ * `resolveService` in flight and rejects a second with "listener already in use";
+ * resolving concurrently would silently drop every desktop after the first, since
+ * `onServiceFound` fires only once per service and there is no retry. So found
+ * services queue and resolve one at a time.
  */
 class DesktopDiscovery(context: Context) {
 
@@ -36,11 +42,13 @@ class DesktopDiscovery(context: Context) {
 
     private var listener: NsdManager.DiscoveryListener? = null
 
+    private val lock = Any()
+    private val pending = ArrayDeque<NsdServiceInfo>()
+    private var resolving = false
+
     @Synchronized
     fun start() {
         if (listener != null) return
-        // Local non-null handle: a nullable member does not smart-cast inside the
-        // runCatching lambda below.
         val manager = nsd ?: return
         val l = object : NsdManager.DiscoveryListener {
             override fun onStartDiscoveryFailed(serviceType: String, errorCode: Int) {
@@ -52,7 +60,7 @@ class DesktopDiscovery(context: Context) {
             override fun onDiscoveryStopped(serviceType: String) {}
 
             override fun onServiceFound(info: NsdServiceInfo) {
-                if (info.serviceType.contains("mcpserved-desktop")) resolve(info)
+                if (info.serviceType.contains("mcpserved-desktop")) enqueue(info)
             }
 
             override fun onServiceLost(info: NsdServiceInfo) {
@@ -68,29 +76,54 @@ class DesktopDiscovery(context: Context) {
     fun stop() {
         listener?.let { runCatching { nsd?.stopServiceDiscovery(it) } }
         listener = null
+        synchronized(lock) {
+            pending.clear()
+            resolving = false
+        }
         found.clear()
         publish()
     }
 
-    @Suppress("DEPRECATION")
-    private fun resolve(info: NsdServiceInfo) {
-        // resolveService is deprecated on API 34+ in favour of the callback API,
-        // but is the only route on this app's minSdk and works fine. A failed
-        // resolve simply drops that one entry rather than crashing.
-        // Older platforms allow only one resolve at a time and throw
-        // IllegalArgumentException ("listener already in use") on overlap; swallow
-        // it — the next discovery tick re-finds the service and resolves again.
-        runCatching {
-            nsd?.resolveService(info, object : NsdManager.ResolveListener {
-                override fun onResolveFailed(info: NsdServiceInfo, errorCode: Int) {}
+    private fun enqueue(info: NsdServiceInfo) {
+        synchronized(lock) { pending.addLast(info) }
+        pump()
+    }
+
+    /** Resolve one queued service; the next starts only when this one finishes. */
+    private fun pump() {
+        val next: NsdServiceInfo = synchronized(lock) {
+            if (resolving) return
+            val n = pending.removeFirstOrNull() ?: return
+            resolving = true
+            n
+        }
+        val manager = nsd
+        if (manager == null) {
+            synchronized(lock) { resolving = false }
+            return
+        }
+
+        val advance = {
+            synchronized(lock) { resolving = false }
+            pump()
+        }
+
+        @Suppress("DEPRECATION")
+        val ok = runCatching {
+            manager.resolveService(next, object : NsdManager.ResolveListener {
+                override fun onResolveFailed(info: NsdServiceInfo, errorCode: Int) = advance()
 
                 override fun onServiceResolved(resolved: NsdServiceInfo) {
-                    val host = resolved.host?.hostAddress ?: return
-                    found[resolved.serviceName] = Desktop(resolved.serviceName, host, resolved.port)
-                    publish()
+                    resolved.host?.hostAddress?.let { host ->
+                        found[resolved.serviceName] = Desktop(resolved.serviceName, host, resolved.port)
+                        publish()
+                    }
+                    advance()
                 }
             })
-        }
+        }.isSuccess
+        // If the resolve call itself threw, free the slot so the queue keeps moving.
+        if (!ok) advance()
     }
 
     private fun publish() {

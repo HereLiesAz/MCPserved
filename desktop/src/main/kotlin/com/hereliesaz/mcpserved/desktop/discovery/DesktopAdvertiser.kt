@@ -28,8 +28,11 @@ class DesktopAdvertiser {
     @Synchronized
     fun start() {
         if (jmdns != null) return
+        // Assign before registering so a registration failure still closes the
+        // JmDNS instance rather than leaking its threads and sockets.
+        val md = runCatching { JmDNS.create(bindAddress()) }.getOrNull() ?: return
+        jmdns = md
         runCatching {
-            val md = JmDNS.create(bindAddress())
             val host = runCatching { InetAddress.getLocalHost().hostName }.getOrNull() ?: "desktop"
             val info = ServiceInfo.create(
                 SERVICE_TYPE,
@@ -40,7 +43,9 @@ class DesktopAdvertiser {
                 mapOf("role" to "desktop", "host" to host),
             )
             md.registerService(info)
-            jmdns = md
+        }.onFailure {
+            runCatching { md.close() }
+            jmdns = null
         }
     }
 
