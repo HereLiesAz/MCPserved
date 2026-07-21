@@ -153,8 +153,11 @@ jobs:
           STANDALONE: ${{ steps.tag.outputs.standalone }}
         shell: bash
         run: |
-          shopt -s globstar nullglob
-          FILES=(artifacts/**/*)
+          # download-artifact unpacks each OS's artifact into its own
+          # subdirectory, so a recursive glob would also match those directories
+          # and `gh release upload` fails with "is a directory". Collect only the
+          # regular installer files.
+          mapfile -t FILES < <(find artifacts -type f)
           if [ ${#FILES[@]} -eq 0 ]; then
             echo "No installers to publish."; exit 0
           fi
