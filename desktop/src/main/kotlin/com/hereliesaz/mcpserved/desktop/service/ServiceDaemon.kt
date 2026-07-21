@@ -3,6 +3,7 @@ package com.hereliesaz.mcpserved.desktop.service
 import com.hereliesaz.mcpserved.desktop.config.ConfigStore
 import com.hereliesaz.mcpserved.desktop.config.DiscoveredAddress
 import com.hereliesaz.mcpserved.desktop.config.DiscoveryCache
+import com.hereliesaz.mcpserved.desktop.discovery.DesktopAdvertiser
 import com.hereliesaz.mcpserved.desktop.discovery.DeviceDiscovery
 import java.time.Instant
 import java.util.concurrent.CountDownLatch
@@ -32,10 +33,14 @@ object ServiceDaemon {
         val discovery = DeviceDiscovery()
         discovery.start { }
 
+        // Advertise this desktop so the phone's app can see it too (mutual find).
+        val advertiser = DesktopAdvertiser().also { it.start() }
+
         val stop = CountDownLatch(1)
         Runtime.getRuntime().addShutdownHook(Thread {
             log("stopping")
             runCatching { discovery.stop() }
+            runCatching { advertiser.stop() }
             stop.countDown()
         })
 

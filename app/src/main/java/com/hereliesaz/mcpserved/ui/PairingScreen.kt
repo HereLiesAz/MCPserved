@@ -101,16 +101,38 @@ fun PairingScreen(vm: MainViewModel) {
         )
         Text(bearer, style = MaterialTheme.typography.bodySmall)
 
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(24.dp))
 
-        Button(
-            onClick = { clipboard.setText(AnnotatedString(vm.mcpConfigJson())) },
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text("Copy host config")
+        // ---- Quick connect: one tailored config per AI client ----------------
+        Text("Quick connect", style = MaterialTheme.typography.titleMedium)
+        Spacer(Modifier.height(4.dp))
+        Text(
+            "Copy the ready-made config for your AI client and paste it in. Each " +
+                "points at this device with the token above.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(Modifier.height(12.dp))
+
+        vm.quickConnectHosts.forEach { host ->
+            Column(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
+                Text(host.label, style = MaterialTheme.typography.titleSmall)
+                Text(
+                    host.hint,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.height(6.dp))
+                OutlinedButton(
+                    onClick = { clipboard.setText(AnnotatedString(vm.hostConfig(host))) },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Copy ${host.label} config")
+                }
+            }
         }
 
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(16.dp))
 
         OutlinedButton(
             onClick = { clipboard.setText(AnnotatedString(bearer)) },
@@ -126,6 +148,28 @@ fun PairingScreen(vm: MainViewModel) {
             modifier = Modifier.fillMaxWidth()
         ) {
             Text("Rotate token")
+        }
+
+        Spacer(Modifier.height(28.dp))
+
+        // ---- Nearby desktops: the other half of Wi-Fi discovery --------------
+        val desktops by vm.discoveredDesktops.collectAsState()
+        Text("Nearby desktops", style = MaterialTheme.typography.titleMedium)
+        Spacer(Modifier.height(4.dp))
+        if (desktops.isEmpty()) {
+            Text(
+                "No desktops found on this Wi-Fi yet. Open MCPserved on a computer " +
+                    "on the same network.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        } else {
+            desktops.forEach { d ->
+                Text(
+                    "• ${d.name}  (${d.host})",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            }
         }
 
         Spacer(Modifier.height(40.dp))

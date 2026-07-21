@@ -13,6 +13,7 @@ import com.hereliesaz.mcpserved.grant.Grant
 import com.hereliesaz.mcpserved.grant.GrantStore
 import com.hereliesaz.mcpserved.service.ControlService
 import com.hereliesaz.mcpserved.service.McpAccessibilityService
+import com.hereliesaz.mcpserved.transport.DesktopDiscovery
 import com.hereliesaz.mcpserved.transport.McpServer
 import com.hereliesaz.mcpserved.transport.Scope
 import kotlinx.coroutines.Dispatchers
@@ -86,6 +87,22 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     private val _mcpBearer = MutableStateFlow(mcpToken.value())
     val mcpBearer: StateFlow<String> = _mcpBearer
+
+    /**
+     * Desktops seen on the LAN (mutual discovery).
+     *
+     * The phone advertises its control service so a desktop can find it; this is
+     * the other direction — every MCPserved desktop advertising itself on the
+     * network, shown so the connection feels two-way rather than one-way.
+     */
+    private val desktopDiscovery = DesktopDiscovery(app).also { it.start() }
+    val discoveredDesktops: StateFlow<List<DesktopDiscovery.Desktop>> = desktopDiscovery.desktops
+
+    /** Copy-to-paste configs for each supported AI host, for the quick-connect list. */
+    val quickConnectHosts = com.hereliesaz.mcpserved.transport.HostConfigs.hosts
+
+    fun hostConfig(host: com.hereliesaz.mcpserved.transport.HostConfigs.Host): String =
+        host.config(mcpEndpoint, _mcpBearer.value)
 
     /** A ready-to-paste MCP host config for the direct endpoint. */
     fun mcpConfigJson(): String = """
@@ -218,5 +235,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         )
+    }
+
+    override fun onCleared() {
+        desktopDiscovery.stop()
+        super.onCleared()
     }
 }

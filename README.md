@@ -49,6 +49,19 @@ to the advertised address. mDNS over Wi-Fi is the discovery path because it is
 the one mechanism both a JVM desktop and Android implement reliably and
 symmetrically; Bluetooth has no dependable cross-platform desktop story.
 
+Discovery is mutual. The desktop also advertises itself (`_mcpserved-desktop._tcp`),
+and the phone app browses for it, so the app's Connect-a-model screen shows the
+desktops on the network — the pairing feels two-way rather than one machine
+quietly reaching for the other.
+
+**Quick connect (adding a model).** The phone is itself an MCP server, so a model
+can be pointed straight at it. The Connect-a-model screen offers a per-client
+config for each popular AI host — Claude Desktop, Claude Code, Cursor, VS Code,
+Windsurf, Cline — tailored to how that host speaks MCP (a native `url` + bearer
+header where it can, the `mcp-remote` shim where it cannot). Copy one, paste it
+in, done. The desktop's AI Hosts screen does the same one-click from the other
+end.
+
 ## Control layers
 
 Backends are not tiers. Root is not uniformly better — `su -c input tap` spawns a

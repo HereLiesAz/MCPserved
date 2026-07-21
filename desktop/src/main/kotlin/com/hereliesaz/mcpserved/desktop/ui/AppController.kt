@@ -6,6 +6,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.hereliesaz.mcpserved.desktop.adb.Adb
 import com.hereliesaz.mcpserved.desktop.config.ConfigStore
+import com.hereliesaz.mcpserved.desktop.discovery.DesktopAdvertiser
 import com.hereliesaz.mcpserved.desktop.discovery.DeviceDiscovery
 import com.hereliesaz.mcpserved.desktop.discovery.DiscoveredDevice
 import com.hereliesaz.mcpserved.desktop.hosts.Hosts
@@ -44,6 +45,7 @@ class AppController(private val scope: CoroutineScope) {
     var selectedTab by mutableStateOf(Tab.Devices)
 
     private val discovery = DeviceDiscovery()
+    private val advertiser = DesktopAdvertiser().also { it.start() }
     val devices = mutableStateListOf<DiscoveredDevice>()
     var discovering by mutableStateOf(false)
         private set
@@ -273,5 +275,6 @@ class AppController(private val scope: CoroutineScope) {
 
     fun dispose() {
         discovery.stop()
+        advertiser.stop()
     }
 }
