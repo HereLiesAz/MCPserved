@@ -8,6 +8,7 @@ import {
 import { tryLoadConfig } from "./config.js";
 import { AppLink } from "./app-link.js";
 import { AdbLink } from "./adb-link.js";
+import { RelayLink } from "./relay-link.js";
 import type { Link } from "./link.js";
 import { buildTools, type Capabilities, type ToolDef } from "./tools.js";
 import { pair } from "./pair.js";
@@ -44,6 +45,34 @@ import { install, connect } from "./install.js";
  */
 async function chooseLink(): Promise<Link> {
   const mode = (process.env.MCPSERVED_MODE ?? "auto").toLowerCase();
+
+  // Relay is explicit and separate from auto's adb-forward probe: it is for a
+  // host with no local network path to the device at all, so nothing about
+  // the fallback below applies, and it requires MCPSERVED_RELAY_URL +
+  // MCPSERVED_RELAY_ROOM (the same room the device's "Remote access" screen
+  // shows) rather than being inferred.
+  if (mode === "relay") {
+    const config = tryLoadConfig();
+    if (!config) {
+      throw new Error("MCPSERVED_MODE=relay, but no pairing was found. Run `npx mcpserved pair` first.");
+    }
+    const relayUrl = process.env.MCPSERVED_RELAY_URL;
+    if (!relayUrl) throw new Error("MCPSERVED_MODE=relay requires MCPSERVED_RELAY_URL.");
+    const room = process.env.MCPSERVED_RELAY_ROOM;
+    if (!room) throw new Error("MCPSERVED_MODE=relay requires MCPSERVED_RELAY_ROOM.");
+
+    const relay = new RelayLink(config, relayUrl, room);
+    const caps = await relay.send({ op: "capabilities" }, 15_000);
+    if (!caps || !caps.ok) {
+      relay.close();
+      throw new Error(
+        `MCPSERVED_MODE=relay, but the device did not answer over ${relayUrl}. Check that it is ` +
+          "armed, has remote access enabled, and is dialed into the same room.",
+      );
+    }
+    return relay;
+  }
+
   const config = mode === "adb" ? null : tryLoadConfig();
 
   // A pinned app mode must never silently become adb: adb is device-wide shell

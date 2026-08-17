@@ -9,12 +9,20 @@
       read the screen and dispatch input on the user's behalf. It is also the
       permission most abused by malware, which is why the app is inert until the
       user grants specific packages, why every session is time-boxed and shown in
-      an ongoing notification, and why control arrives only over a local loopback
-      port the user bridges themselves — never from the network.
+      an ongoing notification, and why control arrives, by default, only over a
+      local loopback port the user bridges themselves — never from the network.
     - INTERNET is required by the platform to open any socket, including the
-      loopback ServerSocket the control channel binds to 127.0.0.1. The app makes
-      no outbound or remote connections; the only reachable listener is on
-      loopback, reached through an `adb forward` tunnel the user sets up.
+      loopback ServerSocket the control channel binds to 127.0.0.1. By default
+      the app makes no outbound or remote connections: the only reachable
+      listener is on loopback, reached through an `adb forward` tunnel the user
+      sets up. Two paths widen this, and both are off by default and require an
+      explicit toggle on the "Remote access" screen: binding the on-device MCP
+      endpoint to every interface (for a private mesh like Tailscale/WireGuard
+      the user installs and joins separately), and dialing out to an operator-
+      configured relay for the sealed-frame protocol (see
+      RemoteAccessStore.kt, RemoteRelayClient.kt, and relay/README.md). Neither
+      grants the relay or the mesh operator any decryption capability — see
+      docs/guide/remote-access.md.
     - WAKE_LOCK holds the screen during a session. Accessibility events stop and
       the node tree empties once the device locks, so a session on a dark screen
       would fail every action while appearing merely unlucky.
@@ -78,7 +86,7 @@
             android:foregroundServiceType="specialUse">
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="User-authorized on-device automation over a local loopback connection" />
+                android:value="User-authorized on-device automation, reachable by default only over a local loopback connection; remote access is opt-in" />
         </service>
 
         <service

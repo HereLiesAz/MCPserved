@@ -8,12 +8,6 @@ import com.hereliesaz.mcpserved.desktop.crypto.InvalidFrame
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
-import java.io.BufferedReader
-import java.io.InputStreamReader
-import java.io.OutputStream
-import java.net.InetSocketAddress
-import java.net.Socket
-import java.net.SocketTimeoutException
 import java.security.SecureRandom
 import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
@@ -21,25 +15,51 @@ import kotlin.concurrent.withLock
 /**
  * How to reach the on-device control server.
  *
- * Two shapes: an `adb forward` tunnel onto the device's loopback port (the USB /
- * paired-cable path), or a direct LAN socket to an address the device advertised
- * over mDNS (the auto-discovery path). Either way the sealed-frame crypto is what
- * authenticates the peer; the transport underneath is just plumbing.
+ * Three shapes: an `adb forward` tunnel onto the device's loopback port (the
+ * USB / paired-cable path), a direct LAN socket to an address the device
+ * advertised over mDNS (the auto-discovery path), or — opt-in, off the local
+ * network entirely — a relay room the device dialed out to
+ * ([RemoteRelayClient] on the device side; see `relay/README.md`). Either way
+ * the sealed-frame crypto is what authenticates the peer; the transport
+ * underneath is just plumbing, which is why only [connect] differs between
+ * them and every other line of [AppLink] is shape-agnostic.
  */
-data class Target(
-    val host: String,
-    val port: Int,
-    val useAdbForward: Boolean,
-) {
-    val describe: String
-        get() = if (useAdbForward) "adb-forward → 127.0.0.1:$port" else "lan $host:$port"
+sealed class Target {
+    abstract val describe: String
+
+    /** Opens the underlying [FrameStream] for this target. */
+    abstract fun connect(timeoutMs: Int): FrameStream
+
+    /** The classic path: bridge the device's loopback port through adb. */
+    data class Loopback(val port: Int) : Target() {
+        override val describe get() = "adb-forward → 127.0.0.1:$port"
+        override fun connect(timeoutMs: Int): FrameStream {
+            Adb.forward(port, port) // harmless when already mapped
+            return connectSocket("127.0.0.1", port, timeoutMs)
+        }
+    }
+
+    /** A device found on the LAN over mDNS — dial it straight, no adb. */
+    data class Lan(val host: String, val port: Int) : Target() {
+        override val describe get() = "lan $host:$port"
+        override fun connect(timeoutMs: Int): FrameStream = connectSocket(host, port, timeoutMs)
+    }
+
+    /**
+     * A relay room, dialed as the "host" role. Requires no local network path
+     * to the device at all — the device found the same relay independently
+     * (opt-in, see `app/.../grant/RemoteAccessStore.kt`) and dialed the same
+     * room as the "device" role.
+     */
+    data class Relay(val url: String, val room: String) : Target() {
+        override val describe get() = "relay $url"
+        override fun connect(timeoutMs: Int): FrameStream = RelayFrameStream(url, room)
+    }
 
     companion object {
-        /** The classic path: bridge the device's loopback port through adb. */
-        fun loopback(config: Config) = Target("127.0.0.1", config.port, useAdbForward = true)
-
-        /** A device found on the LAN over mDNS — dial it straight, no adb. */
-        fun lan(host: String, port: Int) = Target(host, port, useAdbForward = false)
+        fun loopback(config: Config): Target = Loopback(config.port)
+        fun lan(host: String, port: Int): Target = Lan(host, port)
+        fun relay(url: String, room: String): Target = Relay(url, room)
     }
 }
 
@@ -69,9 +89,7 @@ class AppLink(
     private val aad: ByteArray = config.deviceId.toByteArray(Charsets.UTF_8)
     private val lock = ReentrantLock()
 
-    private var socket: Socket? = null
-    private var reader: BufferedReader? = null
-    private var output: OutputStream? = null
+    private var stream: FrameStream? = null
     private var codec: FrameCodec? = null
 
     override val label: String get() = "app (${target.describe})"
@@ -87,17 +105,12 @@ class AppLink(
     }
 
     override fun close() = lock.withLock {
-        runCatching { socket?.close() }
-        socket = null; reader = null; output = null; codec = null
+        runCatching { stream?.close() }
+        stream = null; codec = null
     }
 
     private fun ensureConnected(timeoutMs: Int = 15_000) {
-        socket?.let { if (!it.isClosed && it.isConnected && codec != null) return }
-
-        if (target.useAdbForward) {
-            // Bridge the device's loopback port to ours. Harmless when already mapped.
-            Adb.forward(config.port, config.port)
-        }
+        if (stream != null && codec != null) return
 
         // Fresh per-connection salt and keys. The device folds the same salt in
         // when it reads the hello, so both sides land on the same directional keys.
@@ -105,29 +118,20 @@ class AppLink(
         val keys = Crypto.deriveKeys(config.serverPrivateKey, config.devicePublicKey, salt)
         val newCodec = FrameCodec(sealKey = keys.serverToDevice, openKey = keys.deviceToServer)
 
-        val sock = Socket()
-        sock.connect(InetSocketAddress(target.host, target.port), timeoutMs)
-        sock.tcpNoDelay = true
-
-        val out = sock.getOutputStream()
+        val newStream = target.connect(timeoutMs)
         val hello = buildJsonObject {
             put("v", JsonPrimitive(PROTO_VERSION))
             put("salt", JsonPrimitive(Crypto.b64Url(salt)))
         }
-        out.write((ProtoJson.encodeToString(JsonObject.serializer(), hello) + "\n").toByteArray(Charsets.UTF_8))
-        out.flush()
+        newStream.writeLine(ProtoJson.encodeToString(JsonObject.serializer(), hello))
 
-        socket = sock
-        reader = BufferedReader(InputStreamReader(sock.getInputStream(), Charsets.UTF_8))
-        output = out
+        stream = newStream
         codec = newCodec
     }
 
     private fun exchange(request: JsonObject, timeoutMs: Long): JsonObject {
-        val sock = socket ?: return err("not connected")
+        val stream = stream ?: return err("not connected")
         val codec = codec ?: return err("not connected")
-        val out = output ?: return err("not connected")
-        val reader = reader ?: return err("not connected")
 
         val sealed = codec.seal(
             ProtoJson.encodeToString(JsonObject.serializer(), request).toByteArray(Charsets.UTF_8),
@@ -139,16 +143,13 @@ class AppLink(
             put("seq", JsonPrimitive(sealed.seq))
             put("payload", JsonPrimitive(sealed.payloadB64))
         }
-        out.write((ProtoJson.encodeToString(JsonObject.serializer(), envelope) + "\n").toByteArray(Charsets.UTF_8))
-        out.flush()
+        stream.writeLine(ProtoJson.encodeToString(JsonObject.serializer(), envelope))
 
-        sock.soTimeout = timeoutMs.toInt().coerceAtLeast(1)
+        val deadline = System.currentTimeMillis() + timeoutMs
         while (true) {
-            val line = try {
-                reader.readLine()
-            } catch (_: SocketTimeoutException) {
-                return err("device did not respond within ${timeoutMs}ms")
-            } ?: return err("connection closed")
+            val remaining = deadline - System.currentTimeMillis()
+            if (remaining <= 0) return err("device did not respond within ${timeoutMs}ms")
+            val line = stream.readLine(remaining) ?: return err("connection closed")
             if (line.isEmpty()) continue
 
             val env = try {

@@ -83,32 +83,64 @@ shared because the runtimes cannot import from each other; every constant — HK
 info strings, nonce layout, tag length, AAD — must match exactly, or frames fail
 authentication on arrival with no indication of which side is wrong.
 
-## Loopback binding, reached via adb-forward
+## Wildcard binding, reached via adb-forward, the LAN, or a relay
 
-The app binds its control server to **`127.0.0.1`** (IPv4 loopback explicitly —
-`LocalServer`), port `8790` by default. Loopback is not routable, so **nothing
-off-device can connect.** The desktop server reaches it through an
-`adb forward tcp:8790 tcp:8790` tunnel the operator set up over USB or
-adb-over-Wi-Fi; the `AppLink` sets up that forward itself on connect.
+The app's control server (`LocalServer`) binds the **IPv4 wildcard
+(`0.0.0.0`)**, port `8790` by default — not loopback. This is what lets a
+desktop reach it two ways: through an `adb forward tcp:8790 tcp:8790` tunnel
+onto its own `127.0.0.1` (the `AppLink` sets that up itself on connect), or
+directly over the LAN at an address the device advertised over mDNS (see
+`LanAdvertiser`). A third way exists only on explicit opt-in — dialing out to a
+relay (`RemoteRelayClient`) — covered separately below and in
+[remote-access](remote-access.md). All three carry the identical sealed-frame
+protocol; the bind address and the transport widen who can *reach the socket*,
+never who can *do anything with it*.
 
-Loopback is **not, by itself, an authorization boundary** — any app on the device
-can also open `127.0.0.1:8790`. Authorization is the **pairing key**: a connection
-that cannot produce frames sealed under the shared secret gets no answer and no
-acknowledgement that anything is listening (unopenable frames are dropped
-silently, so an unauthenticated sender cannot even confirm the device is here or
-which device it is). The grant table then decides, per package, what an
-authenticated peer may actually do.
+The bind is **not, by itself, an authorization boundary** — any app on the
+device, and now any host on the LAN, can open the port. Authorization is the
+**pairing key**: a connection that cannot produce frames sealed under the
+shared secret gets no answer and no acknowledgement that anything is listening
+(unopenable frames are dropped silently, so an unauthenticated sender cannot
+even confirm the device is here or which device it is). The grant table then
+decides, per package, what an authenticated peer may actually do.
 
 Connections are served **one at a time**, strictly serial; a second dialer waits
 in the backlog.
+
+### The relay path — opt-in, blind by construction
+
+`RemoteRelayClient` dials a relay URL the operator configures, off by default
+and gated behind its own prominent disclosure (see
+[android-app](android-app.md)). It carries the **same sealed frames** as the
+adb-forward and LAN paths above — `FrameSession` is the identical handshake
+and dispatch logic all three transports share (extracted from what used to be
+`LocalServer`'s own inline connection handler) — so the relay operator, whoever
+runs it, only ever forwards ChaCha20-Poly1305 ciphertext it holds no key for.
+See `relay/README.md` for the relay's own (deliberately dumb) protocol.
+
+This is a materially different security posture from the direct MCP endpoint's
+loopback default below: that endpoint's only protection, ever, is the bearer
+token over plaintext HTTP, safe specifically because loopback keeps it off any
+wire an eavesdropper could be on. The relay path is never offered for that
+endpoint — only for this already end-to-end-encrypted one — for exactly that
+reason.
 
 ## The direct MCP endpoint — bearer token over loopback HTTP
 
 The app also runs an MCP server directly (`transport/McpServer.kt`), so a host can
 connect to the phone without the desktop bridge. It speaks MCP's Streamable HTTP
-and binds to **`127.0.0.1`**, port `8791` by default — the same loopback posture
-as the sealed-frame server, reached the same way, through an
-`adb forward tcp:8791 tcp:8791` tunnel. Nothing off-device can connect.
+and binds to **`127.0.0.1`** by default, port `8791` — the classic loopback
+posture, reached through an `adb forward tcp:8791 tcp:8791` tunnel. Nothing
+off-device can connect by default.
+
+The bind host is configurable, opt-in and off by default, gated behind the same
+prominent disclosure as the relay path: `RemoteAccessStore.wildcardMcpBind`
+widens it to `0.0.0.0`, intended for use behind a private mesh (Tailscale,
+WireGuard) the operator installs and joins separately — this device makes no
+attempt to find or join one itself. This endpoint never gets a relay path (see
+above); its only protection is the bearer token below, which is fine inside a
+mesh that already encrypts the transport end to end, and is exactly the
+tradeoff to weigh before enabling it on anything else.
 
 Loopback is again **not** the authorization boundary; the **bearer token** is
 (`crypto/McpToken.kt`). Every request must carry `Authorization: Bearer <token>`;
@@ -161,7 +193,8 @@ it flags the response so the caller discards stale node ids and re-observes.
 | --- | --- | --- |
 | The language model / MCP host | **No** | Can be persuaded. Never enforces authority. |
 | The desktop MCP server | **No** | Downstream of the model; carries frames, decides nothing. |
-| The loopback socket | **No** by location | Any on-device app can dial it. |
+| The loopback/wildcard socket | **No** by location | Any on-device app, and — if wildcard-bind is opted into — any host on the LAN, can dial it. |
+| The relay (opt-in) | **No**, and structurally can't be | Forwards sealed frames it holds no key for; see "The relay path" above. Untrusted whether self-hosted or third-party. |
 | The pairing key | **Yes** | Only a peer holding the shared secret can produce an openable frame. |
 | The grant table (on device) | **Yes** | The actual policy: per package, per scope, revocable, expiring. |
 | The device / its owner | **Yes** | Enables the service, pairs, arms, grants. The only party that says yes. |

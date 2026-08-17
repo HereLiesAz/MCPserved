@@ -1,0 +1,27 @@
+{
+  "name": "mcpserved-relay",
+  "version": "0.1.0",
+  "description": "Blind byte-pipe relay pairing one MCPserved device connection with one host connection, so a host with no local network path to the phone can still reach it. Never decrypts anything — it forwards MCPserved's already sealed-frame protocol verbatim.",
+  "type": "module",
+  "private": true,
+  "bin": {
+    "mcpserved-relay": "./dist/server.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "pretest": "tsc",
+    "test": "node --test dist/test/*.test.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/ws": "^8.5.13",
+    "typescript": "^5.7.2"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

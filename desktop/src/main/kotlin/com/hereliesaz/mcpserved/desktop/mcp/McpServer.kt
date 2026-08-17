@@ -49,9 +49,34 @@ object McpServer {
      * `adb forward` tunnel onto its loopback port. A pinned `app` mode never
      * silently becomes adb — adb is device-wide shell authority, and falling back
      * to it would quietly widen what the operator asked to restrict.
+     *
+     * `MCPSERVED_MODE=relay` is explicit and separate from `auto`'s LAN/adb-forward
+     * search: a relay is for a host with no local network path to the device at
+     * all, so nothing about auto-discovery applies, and it requires
+     * `MCPSERVED_RELAY_URL` + `MCPSERVED_RELAY_ROOM` (the same room the device's
+     * "Remote access" screen shows) rather than being inferred.
      */
     fun chooseLink(): Link {
         val mode = (System.getenv("MCPSERVED_MODE") ?: "auto").lowercase()
+
+        if (mode == "relay") {
+            val config = ConfigStore.tryLoad()
+                ?: error("MCPSERVED_MODE=relay, but no pairing was found. Pair the device first.")
+            val url = System.getenv("MCPSERVED_RELAY_URL")
+                ?: error("MCPSERVED_MODE=relay requires MCPSERVED_RELAY_URL.")
+            val room = System.getenv("MCPSERVED_RELAY_ROOM")
+                ?: error("MCPSERVED_MODE=relay requires MCPSERVED_RELAY_ROOM.")
+            val relay = AppLink(config, Target.relay(url, room))
+            if (!probe(relay)) {
+                relay.close()
+                error(
+                    "MCPSERVED_MODE=relay, but the device did not answer over $url. Check that it is " +
+                        "armed, has remote access enabled, and is dialed into the same room.",
+                )
+            }
+            return relay
+        }
+
         val config = if (mode == "adb") null else ConfigStore.tryLoad()
 
         if (mode == "app" && config == null) {

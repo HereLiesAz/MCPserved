@@ -143,14 +143,21 @@ to open Settings and turn on Wi-Fi."* Under the hood the model calls
 `capabilities`, then `session_begin`, then `ui_tree`, and acts from there. The tool
 surface is identical whichever path you took; see [mcp-tools](mcp-tools.md).
 
-## Hosts that can't use this
+## A host with no local network path to the phone at all
 
-MCPserved is a **local** MCP server — it drives a phone attached to your machine,
-whether the server runs on the phone (direct) or on your computer (bridge). Hosts
-that only accept **remote, public HTTP connectors** — the ChatGPT web and desktop
-apps' custom connectors, and Google's Gemini — cannot launch a local process, and
-the device's endpoint is bound to loopback for a reason: exposing an
-adb-driving server at a public URL would defeat the whole local-only design. Use
-one of the local hosts above. A public, authenticated bridge is a deliberate,
-separate piece of work — not a checkbox, and not something to point at your daily
-phone.
+`mcpserved` is still a **local process** the host must launch (stdio) or reach
+directly (HTTP) — that part hasn't changed. What's new is that the *phone*
+doesn't have to be on the same network as that process anymore, on explicit
+opt-in: set `MCPSERVED_MODE=relay` with `MCPSERVED_RELAY_URL` and
+`MCPSERVED_RELAY_ROOM` (the room the device's "Remote access" screen shows),
+and the desktop bridge reaches the device over a relay instead of `adb
+forward`/LAN. See [remote-access](remote-access.md) and `relay/README.md`.
+
+This does **not** turn MCPserved into a public HTTP connector, and the device's
+direct MCP-over-HTTP endpoint (`McpServer`, the bearer-token one) never gets a
+relay path — only the already end-to-end-encrypted app-backend protocol does,
+for the security reasons covered in [security](security.md). A cloud-hosted
+`mcpserved` process could use relay mode to reach a phone on someone's home
+network; a **fully remote, public HTTP connector** (the ChatGPT web/desktop
+apps' custom connectors, Google's Gemini) still cannot launch or reach this
+local stdio process at all, relay or not. Use one of the local hosts above.
