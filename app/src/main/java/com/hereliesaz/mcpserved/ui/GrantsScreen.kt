@@ -2,6 +2,8 @@ package com.hereliesaz.mcpserved.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -48,13 +50,22 @@ import com.hereliesaz.mcpserved.transport.Scope
 fun GrantsScreen(vm: MainViewModel) {
     val apps by vm.apps.collectAsState()
     var filter by remember { mutableStateOf("") }
+    var grantedOnly by remember { mutableStateOf(false) }
+    var systemOnly by remember { mutableStateOf(false) }
+    var scopeFilter by remember { mutableStateOf(emptySet<Scope>()) }
     var editing by remember { mutableStateOf<MainViewModel.AppRow?>(null) }
     var confirmRevokeAll by remember { mutableStateOf(false) }
 
-    val visible = remember(apps, filter) {
-        if (filter.isBlank()) apps
-        else apps.filter {
-            it.label.contains(filter, true) || it.pkg.contains(filter, true)
+    // Every filter narrows further — text, granted-state, system-vs-user, and
+    // scope all AND together, live on every keystroke or chip tap. Scope
+    // itself is OR within its own set: "SHELL or TYPE" finds anything that
+    // can do either, the usual multi-select reading, not "must have both."
+    val visible = remember(apps, filter, grantedOnly, systemOnly, scopeFilter) {
+        apps.filter { row ->
+            (filter.isBlank() || row.label.contains(filter, true) || row.pkg.contains(filter, true)) &&
+                (!grantedOnly || row.scopes.isNotEmpty()) &&
+                (!systemOnly || row.isSystem) &&
+                (scopeFilter.isEmpty() || row.scopes.any { it in scopeFilter })
         }
     }
 
@@ -85,10 +96,39 @@ fun GrantsScreen(vm: MainViewModel) {
         OutlinedTextField(
             value = filter,
             onValueChange = { filter = it },
-            placeholder = { Text("Filter") },
+            placeholder = { Text("Search by name or package") },
             singleLine = true,
             modifier = Modifier.fillMaxWidth()
         )
+
+        Spacer(Modifier.height(8.dp))
+
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            FilterChip(
+                selected = grantedOnly,
+                onClick = { grantedOnly = !grantedOnly },
+                label = { Text("Granted") }
+            )
+            FilterChip(
+                selected = systemOnly,
+                onClick = { systemOnly = !systemOnly },
+                label = { Text("System") }
+            )
+            Scope.entries.forEach { scope ->
+                FilterChip(
+                    selected = scope in scopeFilter,
+                    onClick = {
+                        scopeFilter = if (scope in scopeFilter) scopeFilter - scope else scopeFilter + scope
+                    },
+                    label = { Text(scope.name.take(3)) }
+                )
+            }
+        }
 
         Spacer(Modifier.height(8.dp))
 
