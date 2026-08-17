@@ -81,7 +81,15 @@ jobs:
             MAJOR=$(grep '^versionMajor=' version.properties | cut -d'=' -f2 | tr -d '\r ')
             MINOR=$(grep '^versionMinor=' version.properties | cut -d'=' -f2 | tr -d '\r ')
             PATCH=$(grep '^versionPatch=' version.properties | cut -d'=' -f2 | tr -d '\r ')
+            MINOR_LAST=$(grep '^versionMinorLast=' version.properties | cut -d'=' -f2 | tr -d '\r ')
             [[ "$MAJOR" == "0" || -z "$MAJOR" ]] && MAJOR=1
+            # Mirror app/build.gradle.kts's own reset rule, which this script otherwise has
+            # no idea about: a minor bump always starts its patch at 0, even though the
+            # committed versionPatch here still holds the previous minor's value until an
+            # Android build run (a separate workflow) rewrites and commits it back.
+            if [[ "$MINOR" != "$MINOR_LAST" ]]; then
+              PATCH=0
+            fi
             V="${MAJOR}.${MINOR:-0}.${PATCH:-0}"
           fi
           echo "version=$V" >> "$GITHUB_OUTPUT"
