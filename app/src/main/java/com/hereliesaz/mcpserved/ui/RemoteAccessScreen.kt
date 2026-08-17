@@ -20,6 +20,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -116,6 +117,84 @@ fun RemoteAccessScreen(vm: MainViewModel) {
         )
 
         Spacer(Modifier.height(24.dp))
+
+        // ---- The one-tap path: no account, nothing pre-deployed -----------
+        Text("Start a tunnel and connect", style = MaterialTheme.typography.titleLarge)
+        Spacer(Modifier.height(4.dp))
+        Text(
+            "No Cloudflare account, no token, nothing deployed ahead of time — " +
+                "the phone opens a tunnel to itself, then hands the address " +
+                "straight to your AI assistant's share sheet. One tap. It dies " +
+                "the moment you stop it or close the app; start a fresh one next " +
+                "time. Want an address that stays the same across sessions " +
+                "instead? See \"Deploy your own relay\" further down.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(Modifier.height(8.dp))
+        // One tap, not two: pressing this starts the tunnel AND, the moment a
+        // URL exists, opens the share sheet with connect instructions already
+        // filled in — no separate "now go press Send" step. awaitingShare is
+        // scoped to *this* press, so reopening the screen on an already-
+        // running tunnel from an earlier session never re-pops the sheet.
+        var awaitingShare by remember { mutableStateOf(false) }
+        LaunchedEffect(tunnelState, awaitingShare) {
+            if (!awaitingShare) return@LaunchedEffect
+            val state = tunnelState
+            if (state is ControlService.Companion.TunnelState.Running) {
+                awaitingShare = false
+                val intent = Intent(Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(Intent.EXTRA_TEXT, vm.relayConnectString())
+                }
+                context.startActivity(Intent.createChooser(intent, "Send to your AI assistant"))
+            } else if (state is ControlService.Companion.TunnelState.Error) {
+                awaitingShare = false
+            }
+        }
+        Button(
+            onClick = {
+                if (tunnelState is ControlService.Companion.TunnelState.Running) {
+                    vm.stopTunnel()
+                } else {
+                    requestEnable {
+                        awaitingShare = true
+                        vm.startTunnel()
+                    }
+                }
+            },
+            enabled = tunnelState !is ControlService.Companion.TunnelState.Starting,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text(
+                when (tunnelState) {
+                    is ControlService.Companion.TunnelState.Starting -> "Starting…"
+                    is ControlService.Companion.TunnelState.Running -> "Stop tunnel"
+                    else -> "Start tunnel and send to your AI assistant"
+                }
+            )
+        }
+        when (val state = tunnelState) {
+            is ControlService.Companion.TunnelState.Running -> {
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "Reachable at: ${state.url}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            is ControlService.Companion.TunnelState.Error -> {
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    state.message,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error
+                )
+            }
+            else -> {}
+        }
+
+        Spacer(Modifier.height(36.dp))
 
         // ---- Relay: the phone-only path -----------------------------------
         Row(
@@ -237,57 +316,6 @@ fun RemoteAccessScreen(vm: MainViewModel) {
                 )
             }
             is MainViewModel.DeployState.Error -> {
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    state.message,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error
-                )
-            }
-            else -> {}
-        }
-
-        Spacer(Modifier.height(20.dp))
-
-        // ---- Or: a throwaway tunnel, no account, alive for this session ---
-        Text("Or: a temporary tunnel, no account (beta)", style = MaterialTheme.typography.titleSmall)
-        Spacer(Modifier.height(4.dp))
-        Text(
-            "No Cloudflare account, no token, nothing to deploy — the phone " +
-                "opens the tunnel to itself and hands you the address. It dies " +
-                "the moment you stop it or close the app, and needs a fresh one " +
-                "started next time. Good for one conversation; the deploy above " +
-                "is better if you want the same address every time.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        Spacer(Modifier.height(8.dp))
-        Button(
-            onClick = {
-                if (tunnelState is ControlService.Companion.TunnelState.Running) vm.stopTunnel()
-                else vm.startTunnel()
-            },
-            enabled = tunnelState !is ControlService.Companion.TunnelState.Starting,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text(
-                when (tunnelState) {
-                    is ControlService.Companion.TunnelState.Starting -> "Starting…"
-                    is ControlService.Companion.TunnelState.Running -> "Stop tunnel"
-                    else -> "Start tunnel"
-                }
-            )
-        }
-        when (val state = tunnelState) {
-            is ControlService.Companion.TunnelState.Running -> {
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    "Reachable at: ${state.url}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-            is ControlService.Companion.TunnelState.Error -> {
                 Spacer(Modifier.height(4.dp))
                 Text(
                     state.message,
