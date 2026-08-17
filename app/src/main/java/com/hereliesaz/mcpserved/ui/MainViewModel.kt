@@ -21,6 +21,9 @@ import com.hereliesaz.mcpserved.transport.Scope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.filterIsInstance
+import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -227,6 +230,35 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 }
             }
         }
+    }
+
+    // ---- A session-scoped tunnel, no account, alive only while this session is ---
+
+    /** Re-exports [ControlService.tunnelState] — see that class for why it owns the process. */
+    val tunnelState: StateFlow<com.hereliesaz.mcpserved.service.ControlService.Companion.TunnelState> =
+        com.hereliesaz.mcpserved.service.ControlService.tunnelState
+
+    /**
+     * Starts a Cloudflare Quick Tunnel to [com.hereliesaz.mcpserved.transport.LocalWsServer] —
+     * anonymous, no Cloudflare account, alive only as long as this app process
+     * keeps it running. On success the resulting URL fills [relayUrl] the same
+     * way [deployCloudflareRelay] does, so the existing "send connect
+     * instructions" action picks it up unchanged. Requires the service to be
+     * armed already — there is nothing at the other end of the tunnel otherwise.
+     */
+    fun startTunnel() {
+        com.hereliesaz.mcpserved.service.ControlService.instance?.startTunnel()
+    }
+
+    fun stopTunnel() {
+        com.hereliesaz.mcpserved.service.ControlService.instance?.stopTunnel()
+    }
+
+    init {
+        tunnelState
+            .filterIsInstance<com.hereliesaz.mcpserved.service.ControlService.Companion.TunnelState.Running>()
+            .onEach { setRelayUrl(it.url) }
+            .launchIn(viewModelScope)
     }
 
     /** Addresses this device could be reached at if [wildcardMcpBind] is set. */

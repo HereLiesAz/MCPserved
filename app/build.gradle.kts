@@ -254,6 +254,11 @@ dependencies {
     // only implements the MCP JSON-RPC on top.
     implementation(libs.nanohttpd)
 
+    // WebSocket-server extension of the same library, for LocalWsServer — the
+    // local endpoint a self-hosted Cloudflare Quick Tunnel exposes, since
+    // Quick Tunnels proxy HTTP/WebSocket only, not LocalServer's raw TCP.
+    implementation(libs.nanohttpd.websocket)
+
     // Full BouncyCastle. The platform ships a stripped build under the same
     // provider name; McpApplication swaps it out at startup.
     implementation(libs.bouncycastle)

@@ -25,8 +25,10 @@ import com.hereliesaz.mcpserved.grant.Enforcer
 import com.hereliesaz.mcpserved.grant.GrantStore
 import com.hereliesaz.mcpserved.grant.RemoteAccessStore
 import com.hereliesaz.mcpserved.grant.SessionLog
+import com.hereliesaz.mcpserved.transport.CloudflareTunnel
 import com.hereliesaz.mcpserved.transport.LanAdvertiser
 import com.hereliesaz.mcpserved.transport.LocalServer
+import com.hereliesaz.mcpserved.transport.LocalWsServer
 import com.hereliesaz.mcpserved.transport.McpBridge
 import com.hereliesaz.mcpserved.transport.McpServer
 import com.hereliesaz.mcpserved.transport.RemoteRelayClient
@@ -89,6 +91,24 @@ class ControlService : Service() {
 
         /** How often an active mapping is re-requested — leases are not forever. */
         private const val UPNP_RENEW_INTERVAL_MS = 5 * 60_000L
+
+        /**
+         * State of the operator-started Cloudflare Quick Tunnel exposing
+         * [LocalWsServer], if any — class-level for the same reason
+         * [upnpMapping] is: the UI observes it across service restarts.
+         * Unlike the persistent remote-access paths above, this is never
+         * auto-started from a stored setting — it exists only while the
+         * operator has explicitly asked for it this session.
+         */
+        sealed class TunnelState {
+            object Idle : TunnelState()
+            object Starting : TunnelState()
+            data class Running(val url: String) : TunnelState()
+            data class Error(val message: String) : TunnelState()
+        }
+
+        private val _tunnelState = MutableStateFlow<TunnelState>(TunnelState.Idle)
+        val tunnelState: StateFlow<TunnelState> = _tunnelState
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -107,6 +127,8 @@ class ControlService : Service() {
         private set
     lateinit var server: LocalServer
         private set
+    lateinit var localWsServer: LocalWsServer
+        private set
     lateinit var mcpServer: McpServer
         private set
     lateinit var advertiser: LanAdvertiser
@@ -116,6 +138,7 @@ class ControlService : Service() {
     private var relayClient: RemoteRelayClient? = null
     private var upnpMapper: UpnpPortMapper? = null
     private var upnpJob: Job? = null
+    private var cloudflareTunnel: CloudflareTunnel? = null
 
     private var wakeLock: PowerManager.WakeLock? = null
 
@@ -145,6 +168,7 @@ class ControlService : Service() {
         // All are just transports into the same enforcement.
         val dispatcher = Dispatcher(applicationContext, this)
         server = LocalServer(pairing, dispatcher, scope)
+        localWsServer = LocalWsServer(pairing, dispatcher, scope)
         advertiser = LanAdvertiser(applicationContext, pairing.deviceId)
         mcpServer = McpServer(
             McpToken(applicationContext),
@@ -162,6 +186,13 @@ class ControlService : Service() {
             // endpoint is unavailable this run; the sealed-frame server for the
             // desktop bridge is unaffected, so the service stays useful.
             Log.w(TAG, "on-device MCP endpoint failed to bind; the desktop bridge still works")
+        }
+        // Loopback-only and reachable only through a tunnel the operator
+        // explicitly starts (CloudflareTunnel) — always on, same as the two
+        // servers above, since nothing off-device can reach it unless
+        // something else already chose to expose it.
+        if (!localWsServer.startServer()) {
+            Log.w(TAG, "local WebSocket endpoint failed to bind; tunnel-based reachability is unavailable this run")
         }
 
         // Relay dial-out is opt-in and off by default. Unlike the wildcard MCP
@@ -238,10 +269,12 @@ class ControlService : Service() {
         // UninitializedPropertyAccessException and mask the original failure.
         if (::advertiser.isInitialized) advertiser.stop()
         if (::mcpServer.isInitialized) mcpServer.stopServer()
+        if (::localWsServer.isInitialized) localWsServer.stopServer()
         relayClient?.stop()
         upnpJob?.cancel()
         upnpMapper?.let { mapper -> scope.launch { mapper.unmapPort() } }
         _upnpMapping.value = null
+        cloudflareTunnel?.stop()
         if (::server.isInitialized) scope.launch { server.stop() }
         scope.cancel()
         instance = null
@@ -260,6 +293,34 @@ class ControlService : Service() {
             .edit()
             .putBoolean(BootReceiver.KEY_ARMED, armed)
             .apply()
+    }
+
+    /**
+     * Starts a Cloudflare Quick Tunnel exposing [localWsServer] — an
+     * anonymous, no-account, session-scoped alternative to deploying a
+     * persistent relay. Owned here rather than by the ViewModel that
+     * triggers it, since a `Process` handle left only in a ViewModel field
+     * would leak if the ViewModel didn't survive to call [stopTunnel] — this
+     * service already outlives that by design. A no-op if a tunnel is
+     * already starting or running.
+     */
+    fun startTunnel() {
+        if (_tunnelState.value is TunnelState.Starting || _tunnelState.value is TunnelState.Running) return
+        _tunnelState.value = TunnelState.Starting
+        val tunnel = CloudflareTunnel(applicationContext).also { cloudflareTunnel = it }
+        scope.launch {
+            _tunnelState.value = when (val result = tunnel.start(LocalWsServer.DEFAULT_PORT)) {
+                is CloudflareTunnel.Result.Success -> TunnelState.Running(result.url)
+                is CloudflareTunnel.Result.Failure -> TunnelState.Error(result.message)
+            }
+        }
+    }
+
+    /** Kills the running tunnel, if any. The public URL stops answering immediately. */
+    fun stopTunnel() {
+        cloudflareTunnel?.stop()
+        cloudflareTunnel = null
+        _tunnelState.value = TunnelState.Idle
     }
 
     /**

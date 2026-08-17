@@ -29,6 +29,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import com.hereliesaz.mcpserved.service.ControlService
 
 /**
  * This phone, and nothing else. Three of the four paths here need no second
@@ -59,6 +60,7 @@ fun RemoteAccessScreen(vm: MainViewModel) {
     val ipv6Enabled by vm.ipv6Enabled.collectAsState()
     val cloudflareDeployState by vm.cloudflareDeployState.collectAsState()
     var cloudflareTokenInput by remember { mutableStateOf("") }
+    val tunnelState by vm.tunnelState.collectAsState()
     val hasAcceptedDisclosure by vm.hasAcceptedRemoteAccessDisclosure.collectAsState()
     val context = LocalContext.current
 
@@ -235,6 +237,57 @@ fun RemoteAccessScreen(vm: MainViewModel) {
                 )
             }
             is MainViewModel.DeployState.Error -> {
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    state.message,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error
+                )
+            }
+            else -> {}
+        }
+
+        Spacer(Modifier.height(20.dp))
+
+        // ---- Or: a throwaway tunnel, no account, alive for this session ---
+        Text("Or: a temporary tunnel, no account (beta)", style = MaterialTheme.typography.titleSmall)
+        Spacer(Modifier.height(4.dp))
+        Text(
+            "No Cloudflare account, no token, nothing to deploy — the phone " +
+                "opens the tunnel to itself and hands you the address. It dies " +
+                "the moment you stop it or close the app, and needs a fresh one " +
+                "started next time. Good for one conversation; the deploy above " +
+                "is better if you want the same address every time.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(Modifier.height(8.dp))
+        Button(
+            onClick = {
+                if (tunnelState is ControlService.Companion.TunnelState.Running) vm.stopTunnel()
+                else vm.startTunnel()
+            },
+            enabled = tunnelState !is ControlService.Companion.TunnelState.Starting,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text(
+                when (tunnelState) {
+                    is ControlService.Companion.TunnelState.Starting -> "Starting…"
+                    is ControlService.Companion.TunnelState.Running -> "Stop tunnel"
+                    else -> "Start tunnel"
+                }
+            )
+        }
+        when (val state = tunnelState) {
+            is ControlService.Companion.TunnelState.Running -> {
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "Reachable at: ${state.url}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            is ControlService.Companion.TunnelState.Error -> {
                 Spacer(Modifier.height(4.dp))
                 Text(
                     state.message,
