@@ -24,6 +24,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+private const val KEY_PREFERRED_HOST = "preferred_host"
+
 /**
  * State for the whole application, which is small enough not to want more.
  *
@@ -100,11 +102,32 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val desktopDiscovery = DesktopDiscovery(app).also { it.start() }
     val discoveredDesktops: StateFlow<List<DesktopDiscovery.Desktop>> = desktopDiscovery.desktops
 
-    /** Copy-to-paste configs for each supported AI host, for the quick-connect list. */
+    /** Copy-to-paste configs for each supported AI host, for the "choose a different one" list. */
     val quickConnectHosts = com.hereliesaz.mcpserved.transport.HostConfigs.hosts
 
     fun hostConfig(host: com.hereliesaz.mcpserved.transport.HostConfigs.Host): String =
         host.config(mcpEndpoint, _mcpBearer.value)
+
+    private val uiPrefs by lazy {
+        getApplication<Application>().getSharedPreferences("ui", android.content.Context.MODE_PRIVATE)
+    }
+
+    /**
+     * The one host the Direct tab's primary button targets, remembered across
+     * launches so a repeat visit is a single tap with no list to scan.
+     * Defaults to the first entry in [quickConnectHosts]; changing the choice
+     * from the "choose a different host" list updates this too.
+     */
+    private val _preferredHost = MutableStateFlow(
+        quickConnectHosts.firstOrNull { it.id == uiPrefs.getString(KEY_PREFERRED_HOST, null) }
+            ?: quickConnectHosts.first()
+    )
+    val preferredHost: StateFlow<com.hereliesaz.mcpserved.transport.HostConfigs.Host> = _preferredHost
+
+    fun setPreferredHost(host: com.hereliesaz.mcpserved.transport.HostConfigs.Host) {
+        uiPrefs.edit().putString(KEY_PREFERRED_HOST, host.id).apply()
+        _preferredHost.value = host
+    }
 
     /** A ready-to-paste MCP host config for the direct endpoint. */
     fun mcpConfigJson(): String = """
@@ -198,6 +221,30 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     val a11yConnected: Boolean get() = McpAccessibilityService.instance != null
 
     val serviceRunning: Boolean get() = ControlService.instance != null
+
+    /**
+     * Bumped by [refreshStatus] so [StatusScreen] recomposes and re-reads
+     * [a11yConnected]/[serviceRunning] — both are plain getters over static
+     * instances, not their own observable state, so nothing here would
+     * otherwise force a redraw when the user comes back from system settings.
+     */
+    private val _statusTick = MutableStateFlow(0)
+    val statusTick: StateFlow<Int> = _statusTick
+
+    /**
+     * Re-reads readiness and, the moment accessibility just became available,
+     * arms immediately — no separate tap. Enabling accessibility in system
+     * settings is the one step Android will not let an app do for itself; once
+     * the user has done that one unavoidable thing, everything on this app's
+     * side of the boundary should happen without asking for another tap.
+     *
+     * Called from [StatusScreen] on every `ON_RESUME` — the moment the user
+     * returns from the settings screen this app sent them to.
+     */
+    fun refreshStatus() {
+        _statusTick.value++
+        if (a11yConnected && !serviceRunning) startService()
+    }
 
     init {
         refreshApps()
