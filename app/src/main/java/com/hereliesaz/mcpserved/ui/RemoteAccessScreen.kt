@@ -1,6 +1,7 @@
 package com.hereliesaz.mcpserved.ui
 
 import android.content.Intent
+import android.net.Uri
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -276,13 +277,33 @@ fun RemoteAccessScreen(vm: MainViewModel) {
         Text(
             "No relay exists until one is deployed somewhere. This does it from " +
                 "the phone — no computer, no terminal — using Cloudflare's API " +
-                "directly: paste an API token from dash.cloudflare.com → My " +
-                "Profile → API Tokens (\"Edit Cloudflare Workers\" template " +
-                "covers it), tap Deploy, and the URL above fills itself in. " +
-                "Free at this scale; nothing to maintain afterward. Unverified " +
-                "against a live account as of this build — if it fails, " +
-                "relay/cloudflare/README.md in the repo has the same deploy " +
-                "done the well-tested way, with `wrangler`.",
+                "directly: get a token below, paste it in, tap Deploy, and the " +
+                "URL above fills itself in. Free at this scale; nothing to " +
+                "maintain afterward. Unverified against a live account as of " +
+                "this build — if it fails, relay/cloudflare/README.md in the " +
+                "repo has the same deploy done the well-tested way, with " +
+                "`wrangler`.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(Modifier.height(8.dp))
+        OutlinedButton(
+            onClick = {
+                val intent = Intent(
+                    Intent.ACTION_VIEW,
+                    Uri.parse("https://dash.cloudflare.com/profile/api-tokens"),
+                )
+                context.startActivity(intent)
+            },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Get a Cloudflare API token")
+        }
+        Spacer(Modifier.height(4.dp))
+        Text(
+            "Opens Cloudflare's token page in your browser. Tap \"Create Token\" " +
+                "→ the \"Edit Cloudflare Workers\" template, then come back here " +
+                "and paste it in below.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
