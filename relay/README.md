@@ -38,6 +38,12 @@ docker run -p 8787:8787 -e RELAY_IDLE_TIMEOUT_MS=600000 mcpserved-relay
 | --- | --- | --- |
 | `RELAY_PORT` | `8787` | Port the relay listens on. |
 | `RELAY_IDLE_TIMEOUT_MS` | `600000` (10 min) | A room with no traffic for this long is closed and forgotten. |
+| `RELAY_MAX_ROOMS` | `2000` | Concurrent rooms this instance holds. A *new* room beyond this is refused (code `4010`); completing an existing room's pairing never is. |
+| `RELAY_MAX_CONNECTIONS` | `4000` | Concurrent WebSocket connections across all rooms. Beyond it, new upgrade attempts are refused at the TCP level. |
+| `RELAY_MAX_PAYLOAD_BYTES` | `8388608` (8 MiB) | Largest single WebSocket frame accepted. Bounds memory one connection can force per message. |
+| `RELAY_RATE_LIMIT_PER_MINUTE` | `60` | New connection attempts allowed per remote address per minute, sliding window. Keyed on the immediate TCP peer, not `X-Forwarded-For` (spoofable) — fronted by a reverse proxy, this becomes a shared budget across everyone behind it rather than a true per-attacker limit; that's a deliberate, conservative tradeoff, not an oversight.
+
+These defaults are sane for a small, personal relay. **If you intend to expose this publicly** (a shared/default relay other people's phones dial into, not just your own), lower `RELAY_MAX_ROOMS`/`RELAY_MAX_CONNECTIONS` to something proportional to the capacity you're actually paying for, and put real monitoring in front of it — the relay bounds *memory*, it does not bound *cost* or alert you to sustained abuse on its own.
 
 ## Getting a public HTTPS URL
 

@@ -1,5 +1,6 @@
 package com.hereliesaz.mcpserved.ui
 
+import android.content.Intent
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -11,6 +12,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -25,16 +27,20 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 
 /**
- * Both opt-in remote-access paths, off by default: a wider [com.hereliesaz.mcpserved.transport.McpServer]
- * bind for a private mesh (Tailscale, WireGuard), and a relay dial-out for a
- * host with no local network path to the phone at all. Neither is required
- * for the "Direct" tab's flow — this screen only matters once `adb forward`
- * genuinely is not an option.
+ * This phone, and nothing else. The only path here that needs no second
+ * device of any kind — a relay dial-out, so an AI session running anywhere
+ * (including one that has no local network path to this phone at all: a
+ * cloud session, most notably) can reach it. Mesh bind, below it, is a
+ * secondary option for someone who already has a private mesh and a
+ * different device on it — it still needs that other device, so it isn't
+ * "phone only" in the same sense.
+ *
+ * Both paths are off by default, gated behind one shared disclosure the
+ * first time either is turned on.
  */
 @Composable
 fun RemoteAccessScreen(vm: MainViewModel) {
@@ -43,7 +49,7 @@ fun RemoteAccessScreen(vm: MainViewModel) {
     val relayUrl by vm.relayUrl.collectAsState()
     val roomToken by vm.relayRoomToken.collectAsState()
     val hasAcceptedDisclosure by vm.hasAcceptedRemoteAccessDisclosure.collectAsState()
-    val clipboard = LocalClipboardManager.current
+    val context = LocalContext.current
 
     // Turning either path on for the first time shows a one-time prominent
     // disclosure, same pattern as the accessibility gate on first launch.
@@ -61,10 +67,10 @@ fun RemoteAccessScreen(vm: MainViewModel) {
             text = {
                 Text(
                     "This lets MCPserved be reached beyond the USB cable or Wi-Fi " +
-                        "network you're on right now — by a private mesh you join " +
-                        "separately, or by a relay you point it at. Neither is on " +
-                        "until you confirm here, and both stay off unless you turn " +
-                        "them on explicitly below."
+                        "network you're on right now — by a relay you point it at, or " +
+                        "by a private mesh you join separately. Neither is on until " +
+                        "you confirm here, and both stay off unless you turn them on " +
+                        "explicitly below."
                 )
             },
             confirmButton = {
@@ -87,54 +93,16 @@ fun RemoteAccessScreen(vm: MainViewModel) {
             .padding(24.dp)
     ) {
         Text(
-            "Off by default. Both widen who can reach this device beyond the same " +
-                "USB cable or Wi-Fi network — read what each one actually does before " +
-                "turning it on. Changes take effect the next time the service arms.",
+            "Off by default. This is the only tab that needs no computer, no " +
+                "cable, no second device at all — just this phone and an AI " +
+                "session running anywhere, including in the cloud.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
 
-        Spacer(Modifier.height(20.dp))
+        Spacer(Modifier.height(24.dp))
 
-        // ---- Mesh bind: for Tailscale / WireGuard, no adb needed --------------
-        Row(
-            Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text("Bind for a private mesh", style = MaterialTheme.typography.titleMedium)
-            Switch(
-                checked = wildcardBind,
-                onCheckedChange = { on ->
-                    if (on) requestEnable { vm.setWildcardMcpBind(true) } else vm.setWildcardMcpBind(false)
-                }
-            )
-        }
-        Spacer(Modifier.height(4.dp))
-        Text(
-            "Widens the MCP endpoint's bind from loopback to every interface. Only " +
-                "meaningful with a private mesh (Tailscale, WireGuard) already installed " +
-                "and joined separately — this device makes no attempt to find one. The " +
-                "bearer token on the Direct tab is still the only thing that gets an " +
-                "answer, but on an untrusted or shared network this hands anyone on it " +
-                "a login-free shot at guessing it.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        if (wildcardBind) {
-            Spacer(Modifier.height(8.dp))
-            val addresses = vm.localAddresses
-            Text(
-                if (addresses.isEmpty()) "No non-loopback addresses found yet."
-                else "Reachable at: ${addresses.joinToString(", ")}:8791",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-
-        Spacer(Modifier.height(28.dp))
-
-        // ---- Relay: for a host with no local network path at all --------------
+        // ---- Relay: the phone-only path -----------------------------------
         Row(
             Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -150,11 +118,11 @@ fun RemoteAccessScreen(vm: MainViewModel) {
         }
         Spacer(Modifier.height(4.dp))
         Text(
-            "For a host with no local network path to this device at all — a cloud " +
-                "session, for instance. Carries only the already end-to-end encrypted " +
-                "sealed-frame protocol; the relay operator, whoever that is, forwards " +
-                "ciphertext it cannot open. See relay/README.md before pointing this at " +
-                "someone else's relay.",
+            "Carries only the already end-to-end encrypted sealed-frame " +
+                "protocol; the relay operator, whoever that is, forwards " +
+                "ciphertext it cannot open. A relay has to exist somewhere first " +
+                "— see relay/README.md to run your own — but once one is up, " +
+                "reaching it from here is everything below.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -173,14 +141,28 @@ fun RemoteAccessScreen(vm: MainViewModel) {
         Text("Room token", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Text(roomToken, style = MaterialTheme.typography.bodySmall)
 
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(12.dp))
 
-        OutlinedButton(
-            onClick = { clipboard.setText(AnnotatedString(vm.relayConnectString())) },
+        Button(
+            onClick = {
+                val intent = Intent(Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(Intent.EXTRA_TEXT, vm.relayConnectString())
+                }
+                context.startActivity(Intent.createChooser(intent, "Send to your AI assistant"))
+            },
             modifier = Modifier.fillMaxWidth()
         ) {
-            Text("Copy relay connect command")
+            Text("Send connect instructions to your AI assistant")
         }
+        Spacer(Modifier.height(4.dp))
+        Text(
+            "Paste these into a chat with an assistant that can run commands " +
+                "(Claude Code, for instance) — it reads them and connects itself. " +
+                "No terminal of your own required.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
 
         Spacer(Modifier.height(8.dp))
 
@@ -189,6 +171,44 @@ fun RemoteAccessScreen(vm: MainViewModel) {
             modifier = Modifier.fillMaxWidth()
         ) {
             Text("Rotate room token")
+        }
+
+        Spacer(Modifier.height(36.dp))
+
+        // ---- Mesh bind: secondary, still needs another device -------------
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("Bind for a private mesh", style = MaterialTheme.typography.titleMedium)
+            Switch(
+                checked = wildcardBind,
+                onCheckedChange = { on ->
+                    if (on) requestEnable { vm.setWildcardMcpBind(true) } else vm.setWildcardMcpBind(false)
+                }
+            )
+        }
+        Spacer(Modifier.height(4.dp))
+        Text(
+            "For operators who already have a private mesh (Tailscale, WireGuard) " +
+                "and a second device on it — still needs that other device, just not " +
+                "adb or the same Wi-Fi. Widens the MCP endpoint's bind from loopback " +
+                "to every interface; the bearer token on the Direct tab is still the " +
+                "only thing that gets an answer, but on an untrusted or shared " +
+                "network this hands anyone on it a login-free shot at guessing it.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        if (wildcardBind) {
+            Spacer(Modifier.height(8.dp))
+            val addresses = vm.localAddresses
+            Text(
+                if (addresses.isEmpty()) "No non-loopback addresses found yet."
+                else "Reachable at: ${addresses.joinToString(", ")}:8791",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
     }
 }

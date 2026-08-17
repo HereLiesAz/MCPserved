@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { JOIN_REJECTED_OCCUPIED, RoomRegistry, type PeerSocket } from "../src/rooms.js";
+import {
+  JOIN_REJECTED_CAPACITY,
+  JOIN_REJECTED_OCCUPIED,
+  RoomRegistry,
+  type PeerSocket,
+} from "../src/rooms.js";
 
 /** A fake peer with no real transport underneath, for pure logic tests. */
 function fakeSocket() {
@@ -156,4 +161,25 @@ test("traffic resets a room's idle clock", () => {
   registry.sweep(5_000); // 8_000 - 4_000 = 4_000 < 5_000, should survive
 
   assert.equal(registry.roomCount(), 1);
+});
+
+test("rejects creating a new room once maxRooms is already in use", () => {
+  const registry = new RoomRegistry(Date.now, 2);
+  registry.join("room1", "device", fakeSocket().socket);
+  registry.join("room2", "device", fakeSocket().socket);
+
+  const result = registry.join("room3", "device", fakeSocket().socket);
+  assert.equal(result.ok, false);
+  assert.equal((result as { reason: string }).reason, JOIN_REJECTED_CAPACITY);
+  assert.equal(registry.roomCount(), 2);
+});
+
+test("joining an existing room is never blocked by the room cap", () => {
+  const registry = new RoomRegistry(Date.now, 1);
+  registry.join("room1", "device", fakeSocket().socket);
+
+  // room1 already exists and counts toward the cap, but completing its
+  // pairing (the host side joining) must still succeed — it isn't new load.
+  const result = registry.join("room1", "host", fakeSocket().socket);
+  assert.equal(result.ok, true);
 });

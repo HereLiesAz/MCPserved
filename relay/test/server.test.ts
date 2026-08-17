@@ -57,3 +57,52 @@ test("a malformed connect request is rejected at the TCP level", async () => {
     await relay.close();
   }
 });
+
+test("a new room beyond maxRooms completes the WebSocket handshake but is closed at capacity", async () => {
+  // Unlike the rate-limit/connection-cap rejections below, room capacity is
+  // only known once `registry.join` runs — after the WS upgrade already
+  // completed — so the second connection opens cleanly and is then closed
+  // with a specific code, rather than failing the handshake outright.
+  const relay = await startRelay({ port: 0, idleTimeoutMs: 60_000, maxRooms: 1 });
+  try {
+    const first = await connect(relay.port, "only-room", "device");
+    const second = await connect(relay.port, "another-room", "device");
+
+    const [code] = (await once(second, "close")) as [number];
+    assert.equal(code, 4010);
+
+    first.close();
+  } finally {
+    await relay.close();
+  }
+});
+
+test("a connection beyond maxConnections is rejected regardless of room", async () => {
+  const relay = await startRelay({ port: 0, idleTimeoutMs: 60_000, maxConnections: 1 });
+  try {
+    const first = await connect(relay.port, "room-a", "device");
+
+    const second = new WebSocket(`ws://127.0.0.1:${relay.port}/connect?room=room-b&role=device`);
+    const [err] = await once(second, "error");
+    assert.ok(err);
+
+    first.close();
+  } finally {
+    await relay.close();
+  }
+});
+
+test("connection attempts beyond the per-address rate limit are rejected", async () => {
+  const relay = await startRelay({ port: 0, idleTimeoutMs: 60_000, rateLimitPerMinute: 1 });
+  try {
+    const first = await connect(relay.port, "rate-room-1", "device");
+
+    const second = new WebSocket(`ws://127.0.0.1:${relay.port}/connect?room=rate-room-2&role=device`);
+    const [err] = await once(second, "error");
+    assert.ok(err);
+
+    first.close();
+  } finally {
+    await relay.close();
+  }
+});

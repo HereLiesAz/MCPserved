@@ -27,12 +27,23 @@ interface Room {
 /** A role slot was already occupied by a live peer; the caller should reject, not displace. */
 export const JOIN_REJECTED_OCCUPIED = "occupied";
 
-export type JoinResult = { ok: true } | { ok: false; reason: typeof JOIN_REJECTED_OCCUPIED };
+/** The relay is already holding as many rooms as it's configured to allow. */
+export const JOIN_REJECTED_CAPACITY = "capacity";
+
+export type JoinResult =
+  | { ok: true }
+  | { ok: false; reason: typeof JOIN_REJECTED_OCCUPIED | typeof JOIN_REJECTED_CAPACITY };
+
+/** Default cap on concurrent rooms — bounds memory from spam room creation on a public relay. */
+export const DEFAULT_MAX_ROOMS = 2_000;
 
 export class RoomRegistry {
   private readonly rooms = new Map<string, Room>();
 
-  constructor(private readonly now: () => number = Date.now) {}
+  constructor(
+    private readonly now: () => number = Date.now,
+    private readonly maxRooms: number = DEFAULT_MAX_ROOMS,
+  ) {}
 
   /**
    * Attempts to occupy `role` in `roomToken` with `socket`.
@@ -42,10 +53,17 @@ export class RoomRegistry {
    * legitimate peer off it. The rejected caller should close its own socket;
    * this method does not do that for it, since the caller owns delivering the
    * close reason over its own transport (e.g. a WebSocket close code).
+   *
+   * Also rejects creating a *new* room once [maxRooms] is already in use —
+   * joining an *existing* room is never blocked by the cap, since that peer
+   * is completing a pairing already in progress, not adding load.
    */
   join(roomToken: string, role: Role, socket: PeerSocket): JoinResult {
     let room = this.rooms.get(roomToken);
     if (!room) {
+      if (this.rooms.size >= this.maxRooms) {
+        return { ok: false, reason: JOIN_REJECTED_CAPACITY };
+      }
       room = { lastActive: this.now() };
       this.rooms.set(roomToken, room);
     }

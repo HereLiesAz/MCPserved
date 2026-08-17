@@ -16,27 +16,27 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 
 /**
- * "Connect" ties together every way a model reaches this device, as three
- * separate tabs rather than one long scroll — each is a distinct flow with
- * its own audience, and mixing them read as one undifferentiated wall of
- * settings:
+ * "Connect" ties together every way a model reaches this device, as separate
+ * tabs rather than one long scroll — each is a distinct flow with its own
+ * audience, and mixing them read as one undifferentiated wall of settings.
  *
- * - **Direct**: the device is itself the MCP server. No desktop process, no
- *   pairing — just an endpoint and a bearer token.
- * - **Remote**: opt-in, off by default. Widens *how* the Direct endpoint is
- *   reached, for a host with no local network path to the phone.
- * - **Desktop bridge**: the separate `mcpserved` adb quick-connect path,
- *   paired by QR — its own identity, its own revocation.
+ * **This phone** leads, and is the default tab. It's the only path that
+ * needs nothing else — no computer, no cable, no separate device of any
+ * kind — which is the thing most people opening this screen actually want:
+ * an AI session running anywhere, including in the cloud, reaching this
+ * phone with nothing but the phone itself in the loop. **Direct** and
+ * **Desktop bridge** both assume a second device (a computer with `adb`,
+ * or the desktop app) is available and come after, for operators who have one.
  */
 private enum class ConnectTab(val label: String) {
+    REMOTE("This phone"),
     DIRECT("Direct"),
-    REMOTE("Remote"),
     DESKTOP("Desktop bridge"),
 }
 
 @Composable
 fun ConnectScreen(vm: MainViewModel) {
-    var tab by remember { mutableStateOf(ConnectTab.DIRECT) }
+    var tab by remember { mutableStateOf(ConnectTab.REMOTE) }
 
     Column(Modifier.fillMaxSize()) {
         Text(
@@ -56,8 +56,8 @@ fun ConnectScreen(vm: MainViewModel) {
         }
 
         when (tab) {
-            ConnectTab.DIRECT -> DirectConnectScreen(vm)
             ConnectTab.REMOTE -> RemoteAccessScreen(vm)
+            ConnectTab.DIRECT -> DirectConnectScreen(vm)
             ConnectTab.DESKTOP -> DesktopBridgeScreen(vm)
         }
     }
