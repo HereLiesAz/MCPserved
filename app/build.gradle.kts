@@ -196,6 +196,20 @@ android {
         }
         jniLibs {
             pickFirsts += "**/libc++_shared.so"
+            // libcloudflared.so (CloudflareTunnel) is a real executable wearing a .so
+            // name so AGP packages it at all, not a JNI library. Two things it needs
+            // that a normal .so wouldn't:
+            //   - Extracted to a real file at install time (useLegacyPackaging), since
+            //     ProcessBuilder execs a path on disk — it can't run something AGP left
+            //     compressed and mmap-only inside the APK, which is the modern default
+            //     and silently made this file invisible to File.exists() on device.
+            //   - Excluded from AGP's native-library symbol stripping, since it is not
+            //     a library AGP's strip tooling was ever meant to touch, and there is no
+            //     way to confirm a stripped copy still behaves like the binary actually
+            //     downloaded, checksummed, and verified statically linked against
+            //     Cloudflare's official release.
+            useLegacyPackaging = true
+            keepDebugSymbols += "**/libcloudflared.so"
         }
     }
 
