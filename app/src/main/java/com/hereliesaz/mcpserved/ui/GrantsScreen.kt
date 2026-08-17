@@ -29,6 +29,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.hereliesaz.mcpserved.grant.GrantStore
 import com.hereliesaz.mcpserved.transport.Scope
 
 /**
@@ -93,7 +94,14 @@ fun GrantsScreen(vm: MainViewModel) {
 
         LazyColumn(Modifier.fillMaxSize()) {
             items(visible, key = { it.pkg }) { row ->
-                AppListRow(row) { editing = row }
+                AppListRow(
+                    row = row,
+                    onClick = { editing = row },
+                    onQuickToggle = {
+                        if (row.scopes.isEmpty()) vm.setScopes(row.pkg, GrantStore.INTERACT, 3600)
+                        else vm.setScopes(row.pkg, emptySet(), null)
+                    }
+                )
                 HorizontalDivider(color = MaterialTheme.colorScheme.outline)
             }
         }
@@ -133,8 +141,21 @@ fun GrantsScreen(vm: MainViewModel) {
     }
 }
 
+/**
+ * A row's default tap opens [onClick] — the full [ScopeDialog] — for anyone
+ * who wants to pick exact scopes or a different duration. [onQuickToggle] is
+ * the one-tap common case sitting next to it: grant the ordinary bundle
+ * ([GrantStore.INTERACT], one hour) with no dialog at all, or revoke with the
+ * same single tap once granted. The explicit per-app decision itself is never
+ * skippable — that is the security model, not friction — but making that one
+ * decision doesn't have to cost more than one tap for the common case.
+ */
 @Composable
-private fun AppListRow(row: MainViewModel.AppRow, onClick: () -> Unit) {
+private fun AppListRow(
+    row: MainViewModel.AppRow,
+    onClick: () -> Unit,
+    onQuickToggle: () -> Unit,
+) {
     Row(
         Modifier
             .fillMaxWidth()
@@ -153,12 +174,16 @@ private fun AppListRow(row: MainViewModel.AppRow, onClick: () -> Unit) {
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+            if (row.scopes.isNotEmpty()) {
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    row.scopes.joinToString(" ") { it.name.take(3) },
+                    style = MaterialTheme.typography.labelSmall
+                )
+            }
         }
-        if (row.scopes.isNotEmpty()) {
-            Text(
-                row.scopes.joinToString(" ") { it.name.take(3) },
-                style = MaterialTheme.typography.labelSmall
-            )
+        TextButton(onClick = onQuickToggle) {
+            Text(if (row.scopes.isEmpty()) "Grant" else "Revoke")
         }
     }
 }

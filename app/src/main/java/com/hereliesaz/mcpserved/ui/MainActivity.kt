@@ -44,7 +44,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             McpTheme {
                 // The disclosure gates everything. Until it is accepted there is no
-                // way through to the accessibility-settings shortcut, the pairing
+                // way through to the accessibility-settings shortcut, the Connect
                 // screen, or the arm control — the affirmative step comes first.
                 // null is the brief pre-load state: draw the themed background
                 // rather than either real surface, so nothing gated flashes.
@@ -64,7 +64,7 @@ class MainActivity : ComponentActivity() {
 
 private enum class Dest(val label: String, val icon: ImageVector) {
     STATUS("Status", Icons.Outlined.PlayArrow),
-    PAIR("Pair", Icons.Outlined.Lock),
+    CONNECT("Connect", Icons.Outlined.Lock),
     GRANTS("Grants", Icons.Outlined.Settings),
     LOG("Log", Icons.Outlined.List)
 }
@@ -93,7 +93,7 @@ private fun Root(vm: MainViewModel) {
         ) {
             when (dest) {
                 Dest.STATUS -> StatusScreen(vm)
-                Dest.PAIR -> PairingScreen(vm)
+                Dest.CONNECT -> ConnectScreen(vm)
                 Dest.GRANTS -> GrantsScreen(vm)
                 Dest.LOG -> SessionLogScreen()
             }
