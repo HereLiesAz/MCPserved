@@ -59,11 +59,27 @@ class RemoteAccessStore(ctx: Context) {
         get() = prefs.getString(KEY_RELAY_URL, "") ?: ""
         set(value) = prefs.edit().putString(KEY_RELAY_URL, value.trim()).apply()
 
+    /**
+     * Whether the device tries UPnP IGD port mapping so it can be reached
+     * directly, with no relay and no third party.
+     *
+     * Like the relay, this reaches [com.hereliesaz.mcpserved.transport.LocalServer]'s
+     * already end-to-end encrypted sealed-frame port — never
+     * [com.hereliesaz.mcpserved.transport.McpServer]'s — since once a mapping
+     * is live the port is reachable by anyone who finds it. Only works on a
+     * Wi-Fi network whose router supports and allows UPnP; never on cellular.
+     * See [com.hereliesaz.mcpserved.transport.UpnpPortMapper].
+     */
+    var upnpEnabled: Boolean
+        get() = prefs.getBoolean(KEY_UPNP_ENABLED, false)
+        set(value) = prefs.edit().putBoolean(KEY_UPNP_ENABLED, value).apply()
+
     private companion object {
         const val PREFS = "remote_access"
         const val KEY_WILDCARD_BIND = "mcp_wildcard_bind"
         const val KEY_RELAY_ENABLED = "relay_enabled"
         const val KEY_RELAY_URL = "relay_url"
+        const val KEY_UPNP_ENABLED = "upnp_enabled"
         const val BIND_LOOPBACK = "127.0.0.1"
         const val BIND_ALL = "0.0.0.0"
     }

@@ -64,9 +64,9 @@ is not part of this app and also contacts no server of ours by default.
 
 ## Remote access (optional)
 
-Two features, both off until you turn them on and accept a one-time disclosure
-shown in-app first, let the device be reached beyond the local connection
-above:
+Three features, all off until you turn them on and accept a one-time
+disclosure shown in-app first, let the device be reached beyond the local
+connection above:
 
 - **A wider bind for a private mesh.** The on-device MCP endpoint can bind
   every network interface instead of loopback only, for use behind a private,
@@ -74,6 +74,11 @@ above:
   MCPserved does not create, operate, or connect to such a mesh — it only
   changes which interface its own socket accepts connections on. It is still
   protected by the same secret token as the local-only default.
+- **An automatic port mapping (UPnP).** The device can ask your own Wi-Fi
+  router to forward a port straight to it, with no relay and no third party
+  involved at all. What it exposes is the same sealed protocol frames the
+  local connection already uses; only a Wi-Fi router that supports and allows
+  UPnP can be asked, so this never works over a cellular connection.
 - **A relay you point it at.** The device can dial out to a relay server —
   yours, or a third party's — over a single outbound connection. What it sends
   is the same protocol frames the local connection already uses, sealed with
@@ -82,7 +87,7 @@ above:
   third party does. See `relay/README.md` in the project repository for how
   that server works and what it can and cannot see.
 
-Turning either of these on is your decision, made explicitly, after reading
+Turning any of these on is your decision, made explicitly, after reading
 what it does. Turning them off returns the app to the local-only default
 above.
 

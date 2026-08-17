@@ -33,13 +33,15 @@ talking over a wire the user already plugged in.
 
 A host with no local network path to the phone at all — a cloud-hosted AI
 session, say — is a real use case the local-first default does not serve. For
-that, and only on explicit opt-in, two more paths exist: binding the on-device
-MCP endpoint wider for use behind a private mesh the user runs separately
-(Tailscale, WireGuard), or dialing out to an operator-controlled relay that
-carries the already end-to-end encrypted sealed-frame protocol and can never
-decrypt it. See [remote-access](remote-access.md) — both are off by default,
-neither changes the trust model above, and the relay path is a genuinely
-separate, deliberate piece of work rather than a hole in the local-first
+that, and only on explicit opt-in, three more paths exist: binding the
+on-device MCP endpoint wider for use behind a private mesh the user runs
+separately (Tailscale, WireGuard); asking the user's own router for a UPnP
+port mapping, with no relay and no third party at all; or dialing out to an
+operator-controlled relay. The UPnP and relay paths both carry only the
+already end-to-end encrypted sealed-frame protocol and can never decrypt it.
+See [remote-access](remote-access.md) — all three are off by default, none
+changes the trust model above, and the UPnP and relay paths are genuinely
+separate, deliberate pieces of work rather than a hole in the local-first
 design.
 
 The desktop server **holds no authority of its own.** It sits downstream of a

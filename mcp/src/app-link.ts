@@ -8,12 +8,18 @@ import type { Link } from "./link.js";
 const PROTO_VERSION = 2;
 
 /**
- * Connection to the on-device app over a loopback tunnel.
+ * Connection to the on-device app, over an `adb forward` tunnel by default,
+ * or directly at an explicit `host` when one is given.
  *
- * There is no relay and no cloud. The app listens on `127.0.0.1:<port>` on the
- * phone; `adb forward` maps a port on this machine onto it; this link dials that.
- * So the "network" is a USB cable or an adb-over-Wi-Fi session the user
- * established, and the sealed frames never leave the pair of machines.
+ * The default path has no relay and no cloud: the app listens on
+ * `127.0.0.1:<port>` on the phone, `adb forward` maps a port on this machine
+ * onto it, and this link dials that — a USB cable or an adb-over-Wi-Fi session
+ * the user established. Passing a non-default `host` (via `MCPSERVED_HOST`,
+ * see `index.ts`) skips the `adb forward` step entirely and dials that address
+ * straight — the shape a UPnP-mapped or LAN address needs, since neither is
+ * reachable through `adb`. Either way the sealed frames never leave the pair
+ * of machines: `host` only changes how the socket gets opened, not the
+ * pairing key that authenticates what travels over it.
  *
  * Requests are strictly single-flight. The wire protocol carries a sequence
  * number but no correlation id, so responses are matched to requests by
@@ -32,7 +38,10 @@ export class AppLink implements Link {
   private pending: ((value: unknown) => void) | null = null;
   private buf = "";
 
-  constructor(private readonly config: Config) {
+  constructor(
+    private readonly config: Config,
+    private readonly host: string = "127.0.0.1",
+  ) {
     this.aad = Buffer.from(config.deviceId, "utf8");
   }
 
@@ -58,8 +67,12 @@ export class AppLink implements Link {
   private async ensureConnected(timeoutMs = 15_000): Promise<void> {
     if (this.sock && !this.sock.destroyed && this.codec) return;
 
-    // Bridge the device's loopback port to ours. Harmless when already mapped.
-    await adbForward(this.config.port, this.config.port);
+    // Only the loopback default goes through adb — an explicit host (a UPnP
+    // mapping or a LAN address) is already reachable directly, and `adb
+    // forward` has nothing to bridge for it.
+    if (this.host === "127.0.0.1") {
+      await adbForward(this.config.port, this.config.port);
+    }
 
     // Fresh per-connection salt and keys. The device folds the same salt in when
     // it reads the hello, so both sides land on the same directional keys.
@@ -72,7 +85,7 @@ export class AppLink implements Link {
     const codec = new FrameCodec(keys.serverToDevice, keys.deviceToServer);
 
     await new Promise<void>((resolve, reject) => {
-      const sock = net.connect({ host: "127.0.0.1", port: this.config.port });
+      const sock = net.connect({ host: this.host, port: this.config.port });
 
       const timer = setTimeout(() => {
         sock.destroy();
