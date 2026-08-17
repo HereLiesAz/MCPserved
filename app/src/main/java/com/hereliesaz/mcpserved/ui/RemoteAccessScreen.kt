@@ -31,16 +31,21 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 
 /**
- * This phone, and nothing else. Two of the three paths here need no second
- * device of any kind: UPnP, which tries to make the phone directly reachable
- * with zero third party and zero hosting (works only on a Wi-Fi network
- * whose router supports it — never on cellular), and a relay dial-out, which
- * works from anywhere, including cellular, but needs a relay to already
- * exist somewhere. Mesh bind, last, is a secondary option for someone who
- * already has a private mesh and a *different* device on it — it still
- * needs that other device, so it isn't "phone only" in the same sense.
+ * This phone, and nothing else. Three of the four paths here need no second
+ * device of any kind: IPv6, the most direct of the three — the phone's own
+ * global address, no router or relay involved, limited only by whether the
+ * network's firewall allows inbound; UPnP, which asks the router for a port
+ * mapping instead (Wi-Fi only, never cellular, but works even when the
+ * network doesn't hand out a reachable IPv6 address); and a relay dial-out,
+ * which works from anywhere, including cellular, but needs a relay
+ * deployed first — a one-command, free Cloudflare Worker deploy, not a
+ * server anyone has to run continuously; see relay/cloudflare/README.md.
+ * Mesh bind, last, is a secondary option for
+ * someone who already has a private mesh and a *different* device on it —
+ * it still needs that other device, so it isn't "phone only" in the same
+ * sense.
  *
- * All three paths are off by default, gated behind one shared disclosure the
+ * All four paths are off by default, gated behind one shared disclosure the
  * first time any of them is turned on.
  */
 @Composable
@@ -51,6 +56,9 @@ fun RemoteAccessScreen(vm: MainViewModel) {
     val roomToken by vm.relayRoomToken.collectAsState()
     val upnpEnabled by vm.upnpEnabled.collectAsState()
     val upnpMapping by vm.upnpMapping.collectAsState()
+    val ipv6Enabled by vm.ipv6Enabled.collectAsState()
+    val cloudflareDeployState by vm.cloudflareDeployState.collectAsState()
+    var cloudflareTokenInput by remember { mutableStateOf("") }
     val hasAcceptedDisclosure by vm.hasAcceptedRemoteAccessDisclosure.collectAsState()
     val context = LocalContext.current
 
@@ -70,10 +78,11 @@ fun RemoteAccessScreen(vm: MainViewModel) {
             text = {
                 Text(
                     "This lets MCPserved be reached beyond the USB cable or Wi-Fi " +
-                        "network you're on right now — by asking your router to open " +
-                        "a port automatically, by a relay you point it at, or by a " +
-                        "private mesh you join separately. None of these is on until " +
-                        "you confirm here, and all stay off unless you turn them on " +
+                        "network you're on right now — by listening on this phone's " +
+                        "own IPv6 address, by asking your router to open a port " +
+                        "automatically, by a relay you point it at, or by a private " +
+                        "mesh you join separately. None of these is on until you " +
+                        "confirm here, and all stay off unless you turn them on " +
                         "explicitly below."
                 )
             },
@@ -124,8 +133,9 @@ fun RemoteAccessScreen(vm: MainViewModel) {
         Text(
             "Carries only the already end-to-end encrypted sealed-frame " +
                 "protocol; the relay operator, whoever that is, forwards " +
-                "ciphertext it cannot open. A relay has to exist somewhere first " +
-                "— see relay/README.md to run your own — but once one is up, " +
+                "ciphertext it cannot open. A relay has to be deployed first " +
+                "— see relay/cloudflare/README.md for a free, one-command " +
+                "deploy with no server to keep running — but once one is up, " +
                 "reaching it from here is everything below.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -177,6 +187,64 @@ fun RemoteAccessScreen(vm: MainViewModel) {
             Text("Rotate room token")
         }
 
+        Spacer(Modifier.height(20.dp))
+
+        // ---- Deploy a relay to Cloudflare, from the phone, right here -----
+        Text("Deploy your own relay (beta)", style = MaterialTheme.typography.titleSmall)
+        Spacer(Modifier.height(4.dp))
+        Text(
+            "No relay exists until one is deployed somewhere. This does it from " +
+                "the phone — no computer, no terminal — using Cloudflare's API " +
+                "directly: paste an API token from dash.cloudflare.com → My " +
+                "Profile → API Tokens (\"Edit Cloudflare Workers\" template " +
+                "covers it), tap Deploy, and the URL above fills itself in. " +
+                "Free at this scale; nothing to maintain afterward. Unverified " +
+                "against a live account as of this build — if it fails, " +
+                "relay/cloudflare/README.md in the repo has the same deploy " +
+                "done the well-tested way, with `wrangler`.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(Modifier.height(8.dp))
+        OutlinedTextField(
+            value = cloudflareTokenInput,
+            onValueChange = {
+                cloudflareTokenInput = it
+                vm.setCloudflareApiToken(it)
+            },
+            label = { Text("Cloudflare API token") },
+            modifier = Modifier.fillMaxWidth()
+        )
+        Spacer(Modifier.height(8.dp))
+        Button(
+            onClick = vm::deployCloudflareRelay,
+            enabled = cloudflareDeployState !is MainViewModel.DeployState.Deploying,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text(
+                if (cloudflareDeployState is MainViewModel.DeployState.Deploying) "Deploying…" else "Deploy"
+            )
+        }
+        when (val state = cloudflareDeployState) {
+            is MainViewModel.DeployState.Done -> {
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "Deployed: ${state.url}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            is MainViewModel.DeployState.Error -> {
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    state.message,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error
+                )
+            }
+            else -> {}
+        }
+
         Spacer(Modifier.height(36.dp))
 
         // ---- UPnP: zero hosting, zero third party, Wi-Fi only -------------
@@ -210,6 +278,46 @@ fun RemoteAccessScreen(vm: MainViewModel) {
             Text(
                 upnpMapping?.let { "Reachable at: ${it.externalAddress}:${it.externalPort}" }
                     ?: "Not mapped yet — arm the service, or this network doesn't support UPnP.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+
+        Spacer(Modifier.height(36.dp))
+
+        // ---- IPv6: the most direct path there is — no relay, no router ----
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("Listen on this phone's IPv6 address", style = MaterialTheme.typography.titleMedium)
+            Switch(
+                checked = ipv6Enabled,
+                onCheckedChange = { on ->
+                    if (on) requestEnable { vm.setIpv6Enabled(true) } else vm.setIpv6Enabled(false)
+                }
+            )
+        }
+        Spacer(Modifier.height(4.dp))
+        Text(
+            "IPv6 has no NAT to begin with, so there's no router to ask and no " +
+                "relay to run — this device's own global IPv6 address, straight, " +
+                "reaching the same already end-to-end encrypted sealed-frame " +
+                "protocol as the paths above. Whether it's actually reachable " +
+                "depends on your network's firewall rather than any router " +
+                "setting; unlike UPnP this isn't limited to Wi-Fi, since a " +
+                "cellular connection can hand out a routable IPv6 address too — " +
+                "just not always one that accepts unsolicited connections.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        if (ipv6Enabled) {
+            Spacer(Modifier.height(8.dp))
+            val ipv6Addresses = vm.ipv6Addresses
+            Text(
+                if (ipv6Addresses.isEmpty()) "No global IPv6 address found yet."
+                else "Reachable at: ${ipv6Addresses.joinToString(", ") { "[$it]:8790" }}",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )

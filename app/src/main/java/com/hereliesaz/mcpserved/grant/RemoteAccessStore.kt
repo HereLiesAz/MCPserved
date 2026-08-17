@@ -3,12 +3,13 @@ package com.hereliesaz.mcpserved.grant
 import android.content.Context
 
 /**
- * Settings for the two opt-in remote-access paths, both off by default.
+ * Settings for the four opt-in remote-access paths, all off by default.
  *
- * Neither path is a trust boundary of its own — see [Enforcer] for the boundary
- * that actually matters — but each widens who can *reach* the device, which is
- * worth a durable, explicit, one-bit-per-path record rather than inferring intent
- * from whatever happened to be configured last time the service started.
+ * None of the four is a trust boundary of its own — see [Enforcer] for the
+ * boundary that actually matters — but each widens who can *reach* the device,
+ * which is worth a durable, explicit, one-bit-per-path record rather than
+ * inferring intent from whatever happened to be configured last time the
+ * service started.
  *
  * Plain (unencrypted) storage, like [ConsentStore]: these are toggles and a
  * relay's address, not secrets. The one secret this feature needs — the relay
@@ -74,12 +75,27 @@ class RemoteAccessStore(ctx: Context) {
         get() = prefs.getBoolean(KEY_UPNP_ENABLED, false)
         set(value) = prefs.edit().putBoolean(KEY_UPNP_ENABLED, value).apply()
 
+    /**
+     * Whether the device also listens on its own global IPv6 address, if it
+     * has one.
+     *
+     * The most direct of the four paths: IPv6 has no NAT to begin with, so
+     * there is no router to ask (unlike UPnP) and no relay to run (unlike the
+     * relay path) — just the phone's own address, reachable as long as the
+     * network's firewall allows unsolicited inbound. See
+     * [com.hereliesaz.mcpserved.transport.LocalServer.setIpv6Enabled].
+     */
+    var ipv6Enabled: Boolean
+        get() = prefs.getBoolean(KEY_IPV6_ENABLED, false)
+        set(value) = prefs.edit().putBoolean(KEY_IPV6_ENABLED, value).apply()
+
     private companion object {
         const val PREFS = "remote_access"
         const val KEY_WILDCARD_BIND = "mcp_wildcard_bind"
         const val KEY_RELAY_ENABLED = "relay_enabled"
         const val KEY_RELAY_URL = "relay_url"
         const val KEY_UPNP_ENABLED = "upnp_enabled"
+        const val KEY_IPV6_ENABLED = "ipv6_enabled"
         const val BIND_LOOPBACK = "127.0.0.1"
         const val BIND_ALL = "0.0.0.0"
     }

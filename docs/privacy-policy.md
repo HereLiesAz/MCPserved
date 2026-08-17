@@ -64,7 +64,7 @@ is not part of this app and also contacts no server of ours by default.
 
 ## Remote access (optional)
 
-Three features, all off until you turn them on and accept a one-time
+Four features, all off until you turn them on and accept a one-time
 disclosure shown in-app first, let the device be reached beyond the local
 connection above:
 
@@ -74,6 +74,14 @@ connection above:
   MCPserved does not create, operate, or connect to such a mesh — it only
   changes which interface its own socket accepts connections on. It is still
   protected by the same secret token as the local-only default.
+- **Listening on your device's own IPv6 address.** IPv6 addresses are
+  globally routable with no NAT involved, so the device can simply listen on
+  its own — no router asked, no relay run, no third party of any kind.
+  Whether that address is actually reachable from outside your network
+  depends on your network's own firewall, which this app has no way to see or
+  change; it's the only one of the four features with a real chance of
+  working over a cellular connection, since cellular NAT is what blocks the
+  others there, and IPv6 has no NAT to be blocked by.
 - **An automatic port mapping (UPnP).** The device can ask your own Wi-Fi
   router to forward a port straight to it, with no relay and no third party
   involved at all. What it exposes is the same sealed protocol frames the

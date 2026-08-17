@@ -17,7 +17,26 @@ or LAN). It exists only for the opt-in remote-access path — see
 `docs/guide/remote-access.md` in the repo root for when and why you'd deploy
 one.
 
-## Running it
+## Two ways to run this
+
+**[`cloudflare/`](cloudflare/) — no server to keep running, and free at this
+scale.** A Cloudflare Worker + Durable Object speaking the identical wire
+protocol below. `wrangler deploy` and you're done — no VPS, no container, no
+process to keep alive, nothing for you (or this project) to host or pay for
+beyond Cloudflare's own free tier. Start there unless you specifically want
+to run this on infrastructure you already operate.
+
+**This directory (Node, below)** — if you're already running your own VPS or
+container host and would rather keep the relay on it than add a Cloudflare
+account to the mix. Needs a TLS-terminating front end of your own (see
+"Getting a public HTTPS URL" below); the Cloudflare option needs none, since
+Cloudflare terminates TLS for you.
+
+Both speak the exact same protocol (see below), so any client — the phone,
+the desktop bridge, `mcpserved`'s stdio server — works identically against
+either; only the relay URL you configure differs.
+
+## Running it (Node)
 
 ```bash
 npm install

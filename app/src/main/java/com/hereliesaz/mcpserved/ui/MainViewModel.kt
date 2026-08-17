@@ -179,12 +179,83 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     val upnpMapping: StateFlow<com.hereliesaz.mcpserved.transport.UpnpPortMapper.Mapping?> =
         ControlService.upnpMapping
 
+    private val _ipv6Enabled = MutableStateFlow(remoteAccess.ipv6Enabled)
+    val ipv6Enabled: StateFlow<Boolean> = _ipv6Enabled
+
+    // ---- Deploying a relay to the operator's own Cloudflare account -------
+
+    private val cloudflareToken = com.hereliesaz.mcpserved.crypto.CloudflareApiToken(app)
+    private val cloudflareDeployer = com.hereliesaz.mcpserved.transport.CloudflareRelayDeployer(app)
+
+    sealed class DeployState {
+        object Idle : DeployState()
+        object Deploying : DeployState()
+        data class Done(val url: String) : DeployState()
+        data class Error(val message: String) : DeployState()
+    }
+
+    private val _cloudflareDeployState = MutableStateFlow<DeployState>(DeployState.Idle)
+    val cloudflareDeployState: StateFlow<DeployState> = _cloudflareDeployState
+
+    /** Not a StateFlow: the token is write-mostly, read only when a deploy actually runs. */
+    fun setCloudflareApiToken(token: String) {
+        cloudflareToken.value = token
+    }
+
+    /**
+     * Deploys `relay/cloudflare/worker.js` (bundled as an asset) to the
+     * operator's own Cloudflare account and, on success, fills in [relayUrl]
+     * with the resulting address — no separate "now paste the URL" step.
+     * See [com.hereliesaz.mcpserved.transport.CloudflareRelayDeployer]'s doc
+     * for why this is unverified against a live account.
+     */
+    fun deployCloudflareRelay() {
+        val token = cloudflareToken.value
+        if (token.isBlank()) {
+            _cloudflareDeployState.value = DeployState.Error("Paste a Cloudflare API token first.")
+            return
+        }
+        _cloudflareDeployState.value = DeployState.Deploying
+        viewModelScope.launch {
+            when (val result = cloudflareDeployer.deploy(token)) {
+                is com.hereliesaz.mcpserved.transport.CloudflareRelayDeployer.Result.Success -> {
+                    setRelayUrl(result.url)
+                    _cloudflareDeployState.value = DeployState.Done(result.url)
+                }
+                is com.hereliesaz.mcpserved.transport.CloudflareRelayDeployer.Result.Failure -> {
+                    _cloudflareDeployState.value = DeployState.Error(result.message)
+                }
+            }
+        }
+    }
+
     /** Addresses this device could be reached at if [wildcardMcpBind] is set. */
     val localAddresses: List<String>
         get() = runCatching {
             java.net.NetworkInterface.getNetworkInterfaces().asSequence()
                 .flatMap { it.inetAddresses.asSequence() }
                 .filter { !it.isLoopbackAddress && it is java.net.Inet4Address }
+                .map { it.hostAddress ?: "" }
+                .filter { it.isNotBlank() }
+                .toList()
+        }.getOrDefault(emptyList())
+
+    /**
+     * This device's own global-scope IPv6 address(es), if any — informational
+     * only, mirroring [localAddresses]. Whether [ipv6Enabled] actually leaves
+     * the corresponding port reachable is a property of the network, not of
+     * this list; see [com.hereliesaz.mcpserved.transport.LocalServer].
+     */
+    val ipv6Addresses: List<String>
+        get() = runCatching {
+            java.net.NetworkInterface.getNetworkInterfaces().asSequence()
+                .filter { it.isUp && !it.isLoopback }
+                .flatMap { it.inetAddresses.asSequence() }
+                .filterIsInstance<java.net.Inet6Address>()
+                .filter {
+                    !it.isLoopbackAddress && !it.isLinkLocalAddress && !it.isMulticastAddress &&
+                        (it.address[0].toInt() and 0xFE) != 0xFC
+                }
                 .map { it.hostAddress ?: "" }
                 .filter { it.isNotBlank() }
                 .toList()
@@ -216,6 +287,16 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun setUpnpEnabled(enabled: Boolean) {
         remoteAccess.upnpEnabled = enabled
         _upnpEnabled.value = enabled
+    }
+
+    /**
+     * Sets whether [com.hereliesaz.mcpserved.transport.LocalServer] also
+     * listens on this device's global IPv6 address. Takes effect the next
+     * time the service arms, same as [setUpnpEnabled].
+     */
+    fun setIpv6Enabled(enabled: Boolean) {
+        remoteAccess.ipv6Enabled = enabled
+        _ipv6Enabled.value = enabled
     }
 
     fun setRelayUrl(url: String) {

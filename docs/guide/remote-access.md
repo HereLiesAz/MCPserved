@@ -3,19 +3,19 @@
 Everything else in this guide assumes the model's host and the phone share a
 network path — a USB cable, or `adb` over the same Wi-Fi. That's the default,
 and it stays the default: nothing here changes unless the operator explicitly
-turns it on, and all three paths are gated behind a prominent, one-time
+turns it on, and all four paths are gated behind a prominent, one-time
 disclosure in the app before the toggle takes effect (see
 [android-app](android-app.md)).
 
 This page is for the case that default doesn't cover: a host with **no local
 network path to the phone at all** — a cloud-hosted AI session, most notably.
 
-## Three paths
+## Four paths
 
 The obvious asks — "let me use Tailscale," "let me use a public tunnel," "let
 me run my own relay," "let me skip all that and just be reachable" — turn out
-to be three engineering problems, not four, once you separate them by which
-of the phone's two servers they extend:
+to be four engineering problems, once you separate them by which of the
+phone's two servers they extend:
 
 - **`McpServer`** (the direct MCP-over-HTTP endpoint, port 8791) authenticates
   with a bearer token over **plaintext** HTTP. Fine on loopback, where nothing
@@ -30,16 +30,16 @@ So:
 | Path | Extends | Serves |
 | --- | --- | --- |
 | **Wider bind** | `McpServer` | "Let me use Tailscale/WireGuard" |
+| **IPv6** | `LocalServer`'s sealed-frame protocol | "The phone should just host it" — no relay, no router cooperation, no third party of any kind: the phone's own global IPv6 address, direct. IPv6 has no NAT to traverse in the first place, so this is the only one of the four with a real (if not guaranteed) chance of working over cellular too |
 | **UPnP** | `LocalServer`'s sealed-frame protocol | "Let me skip hosting anything and just be reachable" — no relay, no third party, works only on a Wi-Fi network whose router supports it |
-| **Relay** | `LocalServer`'s sealed-frame protocol | "Let me use a public tunnel" and "let me run my own relay" — the same client/server code, differing only in who operates the relay and how its URL is reached; the only one of the three that also works on cellular |
+| **Relay** | `LocalServer`'s sealed-frame protocol | "Let me use a public tunnel" and "let me run my own relay" — the same client/server code, differing only in who operates the relay and how its URL is reached; works from anywhere, including cellular. Deploying your own costs nothing and needs no server to maintain — see [Running a relay](#running-a-relay) below |
 
-`McpServer` never gets a UPnP or relay path. Routing its plaintext-behind-a-
-token protocol through a third party, or exposing it straight to the internet
-via a port mapping, would hand whoever finds it your taps, typed text, and
-shell output in the clear — the opposite of what either mechanism should buy
-you. If you want to be reachable without hosting anything, or via a relay, it
-carries the already-encrypted protocol; if you want a wider bind, pair it with
-a private mesh you trust.
+`McpServer` never gets an IPv6, UPnP, or relay path. Exposing its plaintext-
+behind-a-token protocol straight to the internet, by any of the three
+mechanisms, would hand whoever finds it your taps, typed text, and shell
+output in the clear — the opposite of what any of them should buy you. If you
+want to be reachable directly or via a relay, it carries the already-encrypted
+protocol; if you want a wider bind, pair it with a private mesh you trust.
 
 ## Path 1: wider bind, for a private mesh
 
@@ -70,7 +70,38 @@ outside the mesh can even reach the packets. On an open or shared LAN, it
 hands anyone on that network a login-free shot at guessing the token. Turn
 this on only behind a mesh you trust.
 
-## Path 2: UPnP, for zero hosting
+## Path 2: IPv6, the most direct path there is
+
+Turn on **Listen on this phone's IPv6 address** on the same screen. IPv6 has
+no NAT to traverse in the first place — no router to ask, no relay to run, no
+third party in the data path at all — so this is literally the phone hosting
+itself: `LocalServer` binds the device's own current global IPv6 address, the
+screen shows it, and it's rechecked every few minutes since the address itself
+can rotate (Android's RFC 4941 privacy addresses) or change outright on a
+network switch.
+
+The catch is the one thing that was never in the phone's control to begin
+with: whether the network's firewall allows unsolicited inbound to that
+address. Most home routers pass IPv6 straight through by default (no NAT
+means no equivalent of port forwarding to configure), which is why this often
+just works on Wi-Fi with nothing to turn on at the router. Cellular is
+genuinely different from the UPnP story below: a carrier's IPv6 allocation is
+real and globally routable — there is no cellular-side NAT for IPv6 the way
+there is for IPv4 — but many carriers still run a stateful firewall that
+blocks inbound regardless. That makes this the only one of the four paths
+with an actual chance on cellular, not a guarantee of one.
+
+On the host side, point `mcpserved` at the address the app shows with
+`MCPSERVED_MODE=app` and `MCPSERVED_HOST=<that address>` (an IPv6 literal
+needs no bracket notation here — it's a bare address, not a URL). This skips
+`adb forward` and dials the address directly:
+
+```bash
+MCPSERVED_MODE=app MCPSERVED_HOST=2001:db8::1234:5678 \
+mcpserved install claude-code
+```
+
+## Path 3: UPnP, for zero hosting
 
 Turn on **Try to open a port automatically (UPnP)** on the same screen. The
 device asks any UPnP IGD-capable router on the network to forward an external
@@ -84,16 +115,14 @@ and game networking libraries all do exactly this for the common case of a
 home Wi-Fi router that supports it. It has real limits, though: it only works
 on Wi-Fi (cellular has no router to ask), some home routers ship with UPnP
 disabled, and the address it hands you isn't stable across router reboots or
-DHCP churn. If either of those matters to you — cellular reachability, or a
-stable address — use the relay path below instead.
+DHCP churn.
 
-Point a host at whatever address the app shows, same shape as a direct
-connection but over the sealed-frame protocol rather than plaintext MCP —
-consult the desktop bridge or `mcp/`'s relay/direct client config for how to
-hand a host an explicit `host:port` outside adb-forward's usual localhost
-tunnel.
+Point a host at it the same way as the IPv6 path above —
+`MCPSERVED_MODE=app MCPSERVED_HOST=<mapped address>` — since both land on the
+same `LocalServer` port and the same direct-dial mechanism in `AppLink`; only
+how the address was obtained differs.
 
-## Path 3: relay, for everything else
+## Path 4: relay, for everything else
 
 Turn on **Dial out to a relay**, set a relay URL, and copy the room token —
 all on the same screen. The device opens one outbound WebSocket connection to
@@ -117,31 +146,46 @@ setup, not something you re-type per session.
 
 ### Running a relay
 
-The relay itself (`relay/`, this repo) is a small, deliberately dumb WebSocket
-server: it pairs one "device" connection and one "host" connection by room
-token and forwards bytes verbatim, never parsing or logging a payload. See
-`relay/README.md` for running it — a single `npm start` locally, a Docker
-container, or fronted by Cloudflare Tunnel or ngrok for a free public HTTPS
-URL with automatic TLS. Because the relay only ever forwards already-sealed
-ciphertext, fronting it with a third-party tunnel exposes that third party to
-opaque bytes, not to your phone's screen contents or typed input.
+The relay itself is a small, deliberately dumb WebSocket server: it pairs one
+"device" connection and one "host" connection by room token and forwards
+bytes verbatim, never parsing or logging a payload. Two implementations of
+the identical protocol, pick one:
+
+- **[`relay/cloudflare/`](../../relay/cloudflare/README.md) — no server to
+  run, free at this scale.** A Cloudflare Worker + Durable Object. One
+  `wrangler deploy` and it's live, with TLS already handled by Cloudflare —
+  nothing to keep running, nothing to pay for beyond Cloudflare's free tier.
+  This is the answer to "isn't there a way to do this without hosting or
+  paying for a server" — there is, and it's this: you deploy your own, to
+  your own account, for free, and MCPserved never has to operate a shared
+  one for anybody.
+- **[`relay/`](../../relay/README.md) — self-hosted Node.** `npm start`
+  locally, a Docker container, or on a VPS you already run, fronted by
+  Cloudflare Tunnel or ngrok for a public HTTPS URL with automatic TLS if you
+  don't want to add a Cloudflare account for the Worker option above.
+
+Because either relay only ever forwards already-sealed ciphertext, whichever
+one you pick exposes its operator to opaque bytes, not to your phone's screen
+contents or typed input.
 
 **Whose relay should you use?** One you run yourself is the safest bet — you
-already trust your own infrastructure. A relay run by someone else can occupy
+already trust your own infrastructure, and the Cloudflare Worker option above
+makes "run yourself" cost nothing and need no maintenance, so there's rarely
+a reason to reach for someone else's. A relay run by someone else can occupy
 your device's room slot with a bogus connection (denial of service on that
 room; the fix is rotating the room token) or watch ciphertext go by, but
 cannot decrypt it and cannot impersonate either end without the X25519 pairing
 secret, which never travels anywhere near the relay.
 
-## What none of the three paths change
+## What none of the four paths change
 
-All three are new *transports*. None is a new *authority* — every request
-that arrives over any of them still passes through the same `Enforcer.guard`
+All four are new *transports*. None is a new *authority* — every request that
+arrives over any of them still passes through the same `Enforcer.guard`
 bracketing, the same per-package grant table, and the same session gate as a
 request arriving over `adb forward`. See [security](security.md)'s "Trust
 boundaries" table: the relay is untrusted by construction, exactly like the
 desktop MCP server always was, because it sits downstream of a language
-model's output and carries frames without deciding anything. A live UPnP
-mapping is untrusted the same way, just without an intermediary: it makes the
-already-authenticated port reachable by more people, not by anyone with more
-authority once they get there.
+model's output and carries frames without deciding anything. A live IPv6
+listener or UPnP mapping is untrusted the same way, just without an
+intermediary: either makes the already-authenticated port reachable by more
+people, not by anyone with more authority once they get there.

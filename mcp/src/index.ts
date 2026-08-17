@@ -28,9 +28,9 @@ import { install, connect } from "./install.js";
  * (semantic tree, per-app grants, notification mirror). `MCPSERVED_MODE` pins the
  * choice to `adb` or `app`; the default, `auto`, prefers the app and falls back.
  * `MCPSERVED_HOST` makes app mode dial that address directly instead of
- * `adb forward`-ing a loopback port — for a UPnP-mapped or LAN address the
- * device advertised opt-in (see remote-access.md), where there is no adb path
- * to fall back to in the first place.
+ * `adb forward`-ing a loopback port — for an IPv6, UPnP-mapped, or LAN address
+ * the device advertised opt-in (see remote-access.md), where there is no adb
+ * path to fall back to in the first place.
  *
  * This process holds no authority of its own. In app mode it carries sealed
  * frames to a device that decides what to permit; in adb mode it is a thin shell
