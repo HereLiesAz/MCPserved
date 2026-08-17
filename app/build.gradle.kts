@@ -265,4 +265,15 @@ dependencies {
     // ADB-level access on unrooted devices.
     compileOnly(libs.shizuku.api)
     implementation(libs.shizuku.provider)
+
+    // WebSocket client for the opt-in relay dial-out (RemoteRelayClient). Not
+    // used by any default (local-only) path.
+    implementation(libs.okhttp)
+
+    testImplementation(libs.junit)
+    testImplementation(libs.kotlinx.coroutines.test)
+    // Shadows android.util.Base64 (used by FrameCodec/FrameSession) with a real
+    // implementation so the sealed-frame protocol can be exercised in a plain
+    // local unit test, without a device or emulator.
+    testImplementation(libs.robolectric)
 }

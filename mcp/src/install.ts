@@ -166,7 +166,19 @@ const TARGETS: Target[] = [
  */
 function resolveLaunch(useNpx: boolean): Launch {
   const env: Record<string, string> = {};
-  for (const k of ["MCPSERVED_MODE", "MCPSERVED_ADB_SERIAL", "MCPSERVED_ADB", "MCPSERVED_PORT"]) {
+  const vars = [
+    "MCPSERVED_MODE",
+    "MCPSERVED_ADB_SERIAL",
+    "MCPSERVED_ADB",
+    "MCPSERVED_PORT",
+    // Opt-in relay mode (MCPSERVED_MODE=relay): carried through the same way,
+    // so `MCPSERVED_MODE=relay MCPSERVED_RELAY_URL=… MCPSERVED_RELAY_ROOM=… \
+    // mcpserved install claude-code` registers a host that reaches the device
+    // with no local network path to it at all. See relay/README.md.
+    "MCPSERVED_RELAY_URL",
+    "MCPSERVED_RELAY_ROOM",
+  ];
+  for (const k of vars) {
     const v = process.env[k];
     if (v) env[k] = v;
   }

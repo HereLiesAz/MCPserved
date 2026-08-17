@@ -1,7 +1,5 @@
 package com.hereliesaz.mcpserved.transport
 
-import android.util.Base64
-import com.hereliesaz.mcpserved.crypto.FrameCodec
 import com.hereliesaz.mcpserved.crypto.Pairing
 import com.hereliesaz.mcpserved.service.Dispatcher
 import kotlinx.coroutines.CoroutineScope
@@ -14,9 +12,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlinx.serialization.decodeFromString
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.ServerSocket
@@ -58,11 +53,7 @@ class LocalServer(
     private val _state = MutableStateFlow(State.IDLE)
     val state: StateFlow<State> = _state
 
-    private val json = Json {
-        ignoreUnknownKeys = true
-        encodeDefaults = true
-        classDiscriminator = "op"
-    }
+    private val session = FrameSession(pairing, dispatcher)
 
     private var serverSocket: ServerSocket? = null
     private var loop: Job? = null
@@ -152,60 +143,23 @@ class LocalServer(
     /**
      * Serves a single connection until it closes.
      *
-     * The first line is the server's [Hello], carrying the salt this connection's
-     * keys are derived under. Everything after it is a stream of newline-delimited
-     * [Envelope]s. A frame that fails to open is dropped without a reply, for the
-     * same reason it always was: answering would confirm to an unauthenticated
-     * sender that the device is here and which device it is.
+     * The handshake and dispatch logic live in [FrameSession] — shared, byte for
+     * byte, with [RemoteRelayClient]'s dial-out path. This method's only job is
+     * to wrap the accepted [Socket] as a [FrameStream] and reflect the
+     * connected/unpaired state this class exposes.
      */
     private suspend fun serve(socket: Socket) {
         socket.tcpNoDelay = true
-        val reader = socket.getInputStream().bufferedReader()
-        val writer = socket.getOutputStream().bufferedWriter()
-
-        val helloLine = withContext(Dispatchers.IO) { reader.readLine() } ?: return
-        val hello = runCatching { json.decodeFromString<Hello>(helloLine) }.getOrNull() ?: return
-        if (hello.v != PROTO_VERSION) return
-        val salt = runCatching {
-            Base64.decode(hello.salt, Base64.NO_WRAP or Base64.URL_SAFE)
-        }.getOrNull() ?: return
-
-        val keys = pairing.deriveKeys(salt) ?: run {
-            _state.value = State.UNPAIRED
-            return
-        }
-        val codec = FrameCodec(sealKey = keys.deviceToServer, openKey = keys.serverToDevice)
-        val aad = pairing.deviceId.toByteArray()
-
-        _state.value = State.CONNECTED
-
-        while (scope.isActive && running) {
-            val line = withContext(Dispatchers.IO) { reader.readLine() } ?: break
-
-            val env = runCatching { json.decodeFromString<Envelope>(line) }.getOrNull() ?: continue
-            if (env.deviceId != pairing.deviceId) continue
-
-            val plaintext = runCatching { codec.open(env.seq, env.payload, aad) }.getOrNull()
-                ?: continue
-
-            val request = runCatching {
-                json.decodeFromString<Request>(String(plaintext))
-            }.getOrNull()
-
-            val response = if (request == null) {
-                Response.Err("malformed request")
-            } else {
-                runCatching { dispatcher.handle(request) }
-                    .getOrElse { Response.Err(it.message ?: "dispatch failed") }
-            }
-
-            val sealed = codec.seal(json.encodeToString(response).toByteArray(), aad)
-            val reply = Envelope(pairing.deviceId, sealed.seq, sealed.payloadB64)
-            withContext(Dispatchers.IO) {
-                writer.write(json.encodeToString(reply))
-                writer.write("\n")
-                writer.flush()
-            }
+        val stream = SocketFrameStream(socket)
+        try {
+            val ended = session.run(
+                stream,
+                isActive = { scope.isActive && running },
+                onConnected = { _state.value = State.CONNECTED },
+            )
+            if (ended == FrameSession.EndReason.UNPAIRED) _state.value = State.UNPAIRED
+        } finally {
+            stream.close()
         }
     }
 

@@ -10,6 +10,7 @@ import com.hereliesaz.mcpserved.grant.GrantStore
 import com.hereliesaz.mcpserved.transport.AppEntry
 import com.hereliesaz.mcpserved.transport.GrantEntry
 import com.hereliesaz.mcpserved.transport.Request
+import com.hereliesaz.mcpserved.transport.RequestHandler
 import com.hereliesaz.mcpserved.transport.Response
 import com.hereliesaz.mcpserved.transport.Scope
 import kotlinx.coroutines.sync.Mutex
@@ -41,7 +42,7 @@ import kotlinx.coroutines.sync.withLock
 class Dispatcher(
     private val ctx: Context,
     private val service: ControlService
-) {
+) : RequestHandler {
 
     private val resolver: Resolver get() = service.resolver
     private val grants: GrantStore get() = service.grants
@@ -60,7 +61,7 @@ class Dispatcher(
      */
     private val mutex = Mutex()
 
-    suspend fun handle(req: Request): Response = mutex.withLock {
+    override suspend fun handle(req: Request): Response = mutex.withLock {
         // Session gate. Fails closed for everything that touches the device.
         if (req !is Request.Capabilities && req !is Request.SessionBegin && !session.isActive) {
             return@withLock Response.Err("no active session")

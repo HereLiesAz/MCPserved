@@ -27,6 +27,17 @@ The disclosure states plainly that the button is *not* the last line of defence:
 the service still cannot bind until enabled in system settings, cannot connect
 until paired, and cannot act until a package is granted.
 
+### The remote-access disclosure
+
+A second, later, narrower gate covers the two opt-in remote-access paths (see
+[remote-access](remote-access.md)): the first time the operator turns on
+either the wider-bind or relay toggle on the "Connect a model" screen, a
+dialog explains what turning it on actually does before the switch takes
+effect. Declining leaves the switch off; accepting is recorded as a second
+durable bit (`ConsentStore.acceptRemoteAccess`), separate from the
+accessibility disclosure above, since a device that never enables remote
+access never needs to see it.
+
 ## Enabling the accessibility service
 
 `McpAccessibilityService` is the only handle to the window tree and the only cheap

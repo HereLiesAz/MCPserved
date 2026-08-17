@@ -30,8 +30,24 @@ class ConsentStore(ctx: Context) {
         prefs.edit().putBoolean(KEY_ACCEPTED, true).apply()
     }
 
+    /**
+     * True once the separate remote-access disclosure has been accepted — a
+     * second, later gate distinct from [isAccepted]: this app is inert without
+     * accessibility, but a device that never turns on remote access never
+     * needs to see this one at all. Shown once, before the first time either
+     * [com.hereliesaz.mcpserved.grant.RemoteAccessStore] toggle is flipped on.
+     */
+    val isRemoteAccessAccepted: Boolean
+        get() = prefs.getBoolean(KEY_REMOTE_ACCEPTED, false)
+
+    /** Records acceptance of the remote-access disclosure. */
+    fun acceptRemoteAccess() {
+        prefs.edit().putBoolean(KEY_REMOTE_ACCEPTED, true).apply()
+    }
+
     private companion object {
         const val PREFS = "consent"
         const val KEY_ACCEPTED = "disclosure_accepted"
+        const val KEY_REMOTE_ACCEPTED = "remote_access_disclosure_accepted"
     }
 }

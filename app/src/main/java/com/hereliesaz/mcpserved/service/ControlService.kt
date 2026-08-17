@@ -20,13 +20,16 @@ import com.hereliesaz.mcpserved.backend.RootBackend
 import com.hereliesaz.mcpserved.backend.ShizukuBackend
 import com.hereliesaz.mcpserved.crypto.McpToken
 import com.hereliesaz.mcpserved.crypto.Pairing
+import com.hereliesaz.mcpserved.crypto.RelayToken
 import com.hereliesaz.mcpserved.grant.Enforcer
 import com.hereliesaz.mcpserved.grant.GrantStore
+import com.hereliesaz.mcpserved.grant.RemoteAccessStore
 import com.hereliesaz.mcpserved.grant.SessionLog
 import com.hereliesaz.mcpserved.transport.LanAdvertiser
 import com.hereliesaz.mcpserved.transport.LocalServer
 import com.hereliesaz.mcpserved.transport.McpBridge
 import com.hereliesaz.mcpserved.transport.McpServer
+import com.hereliesaz.mcpserved.transport.RemoteRelayClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -93,6 +96,9 @@ class ControlService : Service() {
     lateinit var advertiser: LanAdvertiser
         private set
 
+    private lateinit var remoteAccess: RemoteAccessStore
+    private var relayClient: RemoteRelayClient? = null
+
     private var wakeLock: PowerManager.WakeLock? = null
 
     /** Set when the screen is being held on by `svc power stayon` rather than a wakelock. */
@@ -113,16 +119,19 @@ class ControlService : Service() {
         enforcer = Enforcer(resolver, grants, log)
         session = Session()
         pairing = Pairing(applicationContext)
+        remoteAccess = RemoteAccessStore(applicationContext)
 
-        // One dispatcher behind both front doors: the desktop bridge's sealed
-        // loopback ([LocalServer]) and the device's own MCP-over-HTTP endpoint
-        // ([McpServer]). Both are just transports into the same enforcement.
+        // One dispatcher behind every front door: the desktop bridge's sealed
+        // loopback ([LocalServer]), the device's own MCP-over-HTTP endpoint
+        // ([McpServer]), and, opt-in, a relay dial-out ([RemoteRelayClient]).
+        // All are just transports into the same enforcement.
         val dispatcher = Dispatcher(applicationContext, this)
         server = LocalServer(pairing, dispatcher, scope)
         advertiser = LanAdvertiser(applicationContext, pairing.deviceId)
         mcpServer = McpServer(
             McpToken(applicationContext),
             McpBridge(dispatcher) { resolver.hasRoot || resolver.hasShizuku },
+            bindHost = remoteAccess.mcpBindHost,
         )
 
         setArmed(true)
@@ -135,6 +144,19 @@ class ControlService : Service() {
             // endpoint is unavailable this run; the sealed-frame server for the
             // desktop bridge is unaffected, so the service stays useful.
             Log.w(TAG, "on-device MCP endpoint failed to bind; the desktop bridge still works")
+        }
+
+        // Relay dial-out is opt-in and off by default. Unlike the wildcard MCP
+        // bind above, it carries LocalServer's already sealed-frame protocol —
+        // see RemoteRelayClient's doc for why that boundary is load-bearing.
+        if (remoteAccess.relayEnabled && remoteAccess.relayUrl.isNotBlank()) {
+            relayClient = RemoteRelayClient(
+                relayUrl = remoteAccess.relayUrl,
+                roomToken = RelayToken(applicationContext).value(),
+                pairing = pairing,
+                dispatcher = dispatcher,
+                scope = scope,
+            ).also { it.start() }
         }
 
         // Advertise on the LAN only while paired and listening, so a desktop can
@@ -178,6 +200,7 @@ class ControlService : Service() {
         // UninitializedPropertyAccessException and mask the original failure.
         if (::advertiser.isInitialized) advertiser.stop()
         if (::mcpServer.isInitialized) mcpServer.stopServer()
+        relayClient?.stop()
         if (::server.isInitialized) scope.launch { server.stop() }
         scope.cancel()
         instance = null

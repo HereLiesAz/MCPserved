@@ -8,9 +8,11 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.hereliesaz.mcpserved.crypto.McpToken
 import com.hereliesaz.mcpserved.crypto.Pairing
+import com.hereliesaz.mcpserved.crypto.RelayToken
 import com.hereliesaz.mcpserved.grant.ConsentStore
 import com.hereliesaz.mcpserved.grant.Grant
 import com.hereliesaz.mcpserved.grant.GrantStore
+import com.hereliesaz.mcpserved.grant.RemoteAccessStore
 import com.hereliesaz.mcpserved.service.ControlService
 import com.hereliesaz.mcpserved.service.McpAccessibilityService
 import com.hereliesaz.mcpserved.transport.DesktopDiscovery
@@ -120,6 +122,77 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun rotateMcpToken() {
         _mcpBearer.value = mcpToken.rotate()
     }
+
+    // ---- Remote access: opt-in, off by default ---------------------------
+
+    private val remoteAccess = RemoteAccessStore(app)
+    private val relayToken = RelayToken(app)
+
+    private val _hasAcceptedRemoteAccessDisclosure = MutableStateFlow(consent.isRemoteAccessAccepted)
+    val hasAcceptedRemoteAccessDisclosure: StateFlow<Boolean> = _hasAcceptedRemoteAccessDisclosure
+
+    /** Records acceptance of the one-time remote-access disclosure. */
+    fun acceptRemoteAccessDisclosure() {
+        consent.acceptRemoteAccess()
+        _hasAcceptedRemoteAccessDisclosure.value = true
+    }
+
+    private val _wildcardMcpBind = MutableStateFlow(remoteAccess.wildcardMcpBind)
+    val wildcardMcpBind: StateFlow<Boolean> = _wildcardMcpBind
+
+    private val _relayEnabled = MutableStateFlow(remoteAccess.relayEnabled)
+    val relayEnabled: StateFlow<Boolean> = _relayEnabled
+
+    private val _relayUrl = MutableStateFlow(remoteAccess.relayUrl)
+    val relayUrl: StateFlow<String> = _relayUrl
+
+    private val _relayRoomToken = MutableStateFlow(relayToken.value())
+    val relayRoomToken: StateFlow<String> = _relayRoomToken
+
+    /** Addresses this device could be reached at if [wildcardMcpBind] is set. */
+    val localAddresses: List<String>
+        get() = runCatching {
+            java.net.NetworkInterface.getNetworkInterfaces().asSequence()
+                .flatMap { it.inetAddresses.asSequence() }
+                .filter { !it.isLoopbackAddress && it is java.net.Inet4Address }
+                .map { it.hostAddress ?: "" }
+                .filter { it.isNotBlank() }
+                .toList()
+        }.getOrDefault(emptyList())
+
+    /**
+     * Sets whether [com.hereliesaz.mcpserved.transport.McpServer] binds every
+     * interface instead of loopback only. Takes effect the next time the
+     * service arms — it is read once, in [ControlService.onCreate].
+     */
+    fun setWildcardMcpBind(enabled: Boolean) {
+        remoteAccess.wildcardMcpBind = enabled
+        _wildcardMcpBind.value = enabled
+    }
+
+    /**
+     * Sets whether the device dials out to the configured relay. Takes effect
+     * the next time the service arms, same as [setWildcardMcpBind].
+     */
+    fun setRelayEnabled(enabled: Boolean) {
+        remoteAccess.relayEnabled = enabled
+        _relayEnabled.value = enabled
+    }
+
+    fun setRelayUrl(url: String) {
+        remoteAccess.relayUrl = url
+        _relayUrl.value = remoteAccess.relayUrl
+    }
+
+    /** Mints a new room token. Any relay room paired under the old one goes cold. */
+    fun rotateRelayRoomToken() {
+        _relayRoomToken.value = relayToken.rotate()
+    }
+
+    /** The connect string an operator pastes into `mcpserved connect --relay`. */
+    fun relayConnectString(): String =
+        "MCPSERVED_MODE=relay MCPSERVED_RELAY_URL=${_relayUrl.value} " +
+            "MCPSERVED_RELAY_ROOM=${_relayRoomToken.value} mcpserved install claude-code"
 
     /** True when the accessibility service is bound. Nothing works without it. */
     val a11yConnected: Boolean get() = McpAccessibilityService.instance != null

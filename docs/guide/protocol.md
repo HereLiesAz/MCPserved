@@ -6,8 +6,14 @@ The loopback protocol between the device (`transport/Protocol.kt`,
 synthesizes equivalent responses without any of this framing.
 
 - **Version:** `PROTO_VERSION = 2`. Bumped in lockstep on both sides.
-- **Transport:** a single TCP connection to `127.0.0.1:8790` (default) over
-  `adb forward`. Newline-delimited JSON (NDJSON), one message per line.
+- **Transport:** a TCP connection to `127.0.0.1:8790` (default) over
+  `adb forward`, or the same bytes over a direct LAN socket, or — opt-in, see
+  [remote-access](remote-access.md) — over a relay's WebSocket. Newline-
+  delimited JSON (NDJSON) over the socket paths, one message per WebSocket
+  text frame over the relay path (which already gives message boundaries).
+  All four carry byte-identical framing below; only how the bytes travel
+  differs. `FrameSession` (`transport/FrameSession.kt`) is the one
+  implementation of everything from `Hello` onward, shared by all of them.
 - **Concurrency:** strictly single-flight, one connection at a time. There is a
   sequence number but no correlation id, so responses are matched to requests by
   **ordering** — valid only while exactly one request is outstanding. The device

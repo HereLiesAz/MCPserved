@@ -14,6 +14,20 @@ import java.security.SecureRandom
 import java.util.UUID
 
 /**
+ * What [com.hereliesaz.mcpserved.transport.FrameSession] needs from [Pairing]:
+ * an address and a way to derive per-connection frame keys.
+ *
+ * Split out so [FrameSession] carries no compile-time dependency on Android
+ * `Context` (which [Pairing]'s `EncryptedSharedPreferences` backing requires)
+ * and can be driven in a plain JVM unit test against a fake that does the
+ * same X25519/HKDF math over in-memory keys.
+ */
+interface KeyPairing {
+    val deviceId: String
+    fun deriveKeys(salt: ByteArray): Pairing.FrameKeys?
+}
+
+/**
  * Establishes and stores the long-term keys shared with the desktop MCP server.
  *
  * Pairing is a one-time out-of-band exchange: the device generates an X25519
@@ -34,7 +48,7 @@ import java.util.UUID
  * Bundling one implementation avoids two independent API-level branches in the
  * one part of the system where a silent fallback would be worst.
  */
-class Pairing(ctx: Context) {
+class Pairing(ctx: Context) : KeyPairing {
 
     private val prefs by lazy {
         val key = MasterKey.Builder(ctx)
@@ -93,7 +107,7 @@ class Pairing(ctx: Context) {
     /** True once a peer public key has been recorded. */
     val isPaired: Boolean get() = prefs.getString(KEY_PEER_PUB, null) != null
 
-    val deviceId: String
+    override val deviceId: String
         get() = prefs.getString(KEY_DEVICE_ID, null) ?: rotateIdentity().deviceId
 
     /**
@@ -168,7 +182,7 @@ class Pairing(ctx: Context) {
      * @param salt per-connection random bytes shared by both endpoints
      * @return device-to-server and server-to-device keys, or null when unpaired
      */
-    fun deriveKeys(salt: ByteArray): FrameKeys? {
+    override fun deriveKeys(salt: ByteArray): FrameKeys? {
         val privB64 = prefs.getString(KEY_PRIV, null) ?: return null
         val peerB64 = prefs.getString(KEY_PEER_PUB, null) ?: return null
 

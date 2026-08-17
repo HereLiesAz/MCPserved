@@ -25,25 +25,32 @@ import kotlinx.serialization.json.put
  * semantics — `initialize`, `tools/list`, `tools/call`, `ping` — live in
  * [McpBridge]; this class is only HTTP, auth, and JSON-RPC framing.
  *
- * It binds to `127.0.0.1`, exactly like [LocalServer]: loopback is not routable,
- * so nothing off-device reaches it, and the operator bridges to it with a single
- * `adb forward tcp:$port tcp:$port` over USB or adb-over-Wi-Fi. Loopback is not the
- * authorization boundary — any process on the device can also dial it — so every
- * request must carry `Authorization: Bearer <token>`; one that cannot gets `401`
- * and no other signal.
+ * It binds to `127.0.0.1` by default, exactly like [LocalServer]'s loopback
+ * path: loopback is not routable, so nothing off-device reaches it, and the
+ * operator bridges to it with a single `adb forward tcp:$port tcp:$port` over
+ * USB or adb-over-Wi-Fi. A caller may instead pass [bindHost] as the wildcard
+ * address, opt-in and off by default (see
+ * [com.hereliesaz.mcpserved.grant.RemoteAccessStore]), so the endpoint is
+ * reachable directly on a private mesh (Tailscale, WireGuard) without a
+ * tunnel. Either way loopback-or-not is not the authorization boundary — any
+ * process that can reach the socket can dial it — so every request must carry
+ * `Authorization: Bearer <token>`; one that cannot gets `401` and no other
+ * signal. Widening the bind widens who can knock, never who can walk in
+ * without the token.
  */
 class McpServer(
     private val token: McpToken,
     private val bridge: McpBridge,
     port: Int = DEFAULT_HTTP_PORT,
-) : NanoHTTPD(LOOPBACK, port) {
+    private val bindHost: String = LOOPBACK,
+) : NanoHTTPD(bindHost, port) {
 
     /** Starts listening. Returns false if the port could not be bound. */
     fun startServer(): Boolean = try {
         start(SOCKET_READ_TIMEOUT, true)
         true
     } catch (e: Exception) {
-        Log.w(TAG, "MCP HTTP server failed to bind on $LOOPBACK", e)
+        Log.w(TAG, "MCP HTTP server failed to bind on $bindHost", e)
         false
     }
 

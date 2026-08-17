@@ -10,11 +10,17 @@ arguments it opens a window for pairing, Wi-Fi discovery, and one-click host
 setup; launched with `stdio` it is the headless server an AI host spawns and
 speaks to over stdin/stdout.
 
-Everything is local. There is no relay and no cloud in the path: control travels
-a USB cable, an adb-over-Wi-Fi session, or a direct LAN socket to a phone the
-desktop found over mDNS. The desktop server holds no authority of its own — it
-sits downstream of a language model's output, which makes it the component least
-suited to being the thing that says yes.
+By default, everything is local. There is no relay and no cloud in the path:
+control travels a USB cable, an adb-over-Wi-Fi session, or a direct LAN socket
+to a phone the desktop found over mDNS. The desktop server holds no authority
+of its own — it sits downstream of a language model's output, which makes it
+the component least suited to being the thing that says yes.
+
+For a host with no local network path to the phone at all — a cloud-hosted AI
+session, say — two opt-in paths exist, off by default and gated behind their
+own disclosure in the app: a wider bind for use behind a private mesh, and a
+relay that carries the same sealed-frame protocol without ever being able to
+decrypt it. See [docs/guide/remote-access.md](docs/guide/remote-access.md).
 
 ## Shape
 
@@ -185,7 +191,8 @@ prefers the app and falls back.
   implementation; unrooted devices currently cannot screenshot through the app
   (the adb backend's `screencap` works regardless).
 - Launcher icon is the template's.
-- No tests.
+- Test coverage is thin — the sealed-frame session logic and the relay's room
+  pairing have unit tests; most of the rest does not yet.
 
 ## Layout
 
@@ -195,6 +202,9 @@ desktop/  Compose desktop app — GUI (pairing, discovery, one-click hosts) and 
           stdio MCP server, packaged as native installers for Windows/macOS/Linux
 mcp/      Node reference server — the original TypeScript stdio implementation the
           Kotlin desktop side was ported from; kept as an executable spec
+relay/    Opt-in relay server — a blind byte-pipe pairing one device connection
+          with one host connection, for a host with no local network path to
+          the phone at all. Separately deployed; see relay/README.md.
 ~~~
 
 The desktop side lives in `desktop/` as a Compose for Desktop module. It shares

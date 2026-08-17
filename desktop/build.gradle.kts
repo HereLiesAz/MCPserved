@@ -53,7 +53,8 @@ compose.desktop {
             vendor = "hereliesaz"
             copyright = "© hereliesaz"
 
-            modules("java.naming", "java.management", "jdk.crypto.ec")
+            // java.net.http: the opt-in relay path's WebSocket client (RelayFrameStream).
+            modules("java.naming", "java.management", "jdk.crypto.ec", "java.net.http")
 
             // The launcher icon is derived from the Android app's, so the phone
             // and the desktop present the same mark. jpackage wants a different

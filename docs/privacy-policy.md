@@ -4,17 +4,23 @@
 
 _Last updated: 2026-07-20_
 
-MCPserved is a local device-control tool. It is built so that there is almost
-nothing to have a privacy policy about: the app collects no personal data, has
-no accounts, contains no analytics or advertising, and makes no connection to any
-server operated by us or anyone else. This document says so precisely.
+MCPserved is a local-first device-control tool. It is built so that there is
+almost nothing to have a privacy policy about: the app collects no personal
+data, has no accounts, and contains no analytics or advertising. By default it
+makes no connection to any server operated by us or anyone else. Two optional,
+off-by-default features change what "by default" means, and this document says
+so precisely, in the "Remote access (optional)" section below.
 
 ## Summary
 
 - **We collect nothing.** No personal data, no usage analytics, no identifiers.
 - **We share nothing.** There is no backend to share it with.
-- **Nothing leaves your device except to a client you connect yourself,** over a
-  local link (USB, or adb over your own network) that you set up.
+- **By default, nothing leaves your device except to a client you connect
+  yourself,** over a local link (USB, or adb over your own network) that you
+  set up.
+- **You can opt into two remote-access features,** each off until you
+  explicitly turn it on and accept a separate disclosure — see "Remote access
+  (optional)" below.
 - **You are in control.** The app does nothing until you enable it, pair a
   client, arm it, and grant specific apps — each of which you can undo.
 
@@ -45,16 +51,40 @@ The app keeps no other records.
 
 ## Network
 
-MCPserved makes **no outbound internet connections.** Its control channel is a
-listener bound to the loopback address `127.0.0.1`, reachable only through an
-`adb` connection you establish yourself (a USB cable, or adb-over-Wi-Fi on your
-own network). The `INTERNET` permission is present only because Android requires
-it to open any socket, including a loopback one; it is not used to contact any
-server.
+By default, MCPserved makes **no outbound internet connections.** Its control
+channel is a listener bound to the loopback address `127.0.0.1`, reachable only
+through an `adb` connection you establish yourself (a USB cable, or
+adb-over-Wi-Fi on your own network). The `INTERNET` permission is present only
+because Android requires it to open any socket, including a loopback one; by
+default it is not used to contact any server.
 
 The companion desktop server is a separate open-source program that runs on your
 own computer and communicates with the device over that same local connection. It
-is not part of this app and also contacts no server of ours.
+is not part of this app and also contacts no server of ours by default.
+
+## Remote access (optional)
+
+Two features, both off until you turn them on and accept a one-time disclosure
+shown in-app first, let the device be reached beyond the local connection
+above:
+
+- **A wider bind for a private mesh.** The on-device MCP endpoint can bind
+  every network interface instead of loopback only, for use behind a private,
+  encrypted mesh (Tailscale, WireGuard) that you install and join yourself.
+  MCPserved does not create, operate, or connect to such a mesh — it only
+  changes which interface its own socket accepts connections on. It is still
+  protected by the same secret token as the local-only default.
+- **A relay you point it at.** The device can dial out to a relay server —
+  yours, or a third party's — over a single outbound connection. What it sends
+  is the same protocol frames the local connection already uses, sealed with
+  a key that is generated on your device and never leaves it; the relay
+  forwards ciphertext it cannot read, whether you operate it yourself or a
+  third party does. See `relay/README.md` in the project repository for how
+  that server works and what it can and cannot see.
+
+Turning either of these on is your decision, made explicitly, after reading
+what it does. Turning them off returns the app to the local-only default
+above.
 
 ## The local connection and its authority
 

@@ -18,18 +18,29 @@ the no-app adb quick-connect and for hosts that only launch stdio servers. See
 
 ## The local-first thesis
 
-There is no relay and no cloud in the path, and no account to create. Control
-travels a connection the user establishes themselves: a USB cable, or `adb`
-over their own Wi-Fi. The Android app makes no outbound network connections and
-sends screen contents to no server. The desktop server connects to nothing on
-the internet either — in app mode it reaches the phone through a loopback tunnel,
-in adb mode it shells out to the `adb` binary.
+By default, there is no relay and no cloud in the path, and no account to
+create. Control travels a connection the user establishes themselves: a USB
+cable, or `adb` over their own Wi-Fi. The Android app makes no outbound network
+connections and sends screen contents to no server. The desktop server
+connects to nothing on the internet either — in app mode it reaches the phone
+through a loopback tunnel, in adb mode it shells out to the `adb` binary.
 
 This is a deliberate inversion of the usual remote-control shape. Removing the
 relay removes the remote-control profile that gets accessibility apps pulled from
 app stores, and it removes the server that would otherwise be a standing target.
-What remains is a pair of machines the user already controls, talking over a wire
-the user already plugged in.
+What remains, by default, is a pair of machines the user already controls,
+talking over a wire the user already plugged in.
+
+A host with no local network path to the phone at all — a cloud-hosted AI
+session, say — is a real use case the local-first default does not serve. For
+that, and only on explicit opt-in, two more paths exist: binding the on-device
+MCP endpoint wider for use behind a private mesh the user runs separately
+(Tailscale, WireGuard), or dialing out to an operator-controlled relay that
+carries the already end-to-end encrypted sealed-frame protocol and can never
+decrypt it. See [remote-access](remote-access.md) — both are off by default,
+neither changes the trust model above, and the relay path is a genuinely
+separate, deliberate piece of work rather than a hole in the local-first
+design.
 
 The desktop server **holds no authority of its own.** It sits downstream of a
 language model's output, so it can be persuaded — which makes it exactly the
@@ -86,3 +97,6 @@ claiming `isAccessibilityTool`.
   See [backends](backends.md).
 - **The screen stays on during an app session** and **Shizuku dies on reboot** —
   see [android-app](android-app.md) and [troubleshooting](troubleshooting.md).
+- **Remote access is opt-in, off by default, and only for the app backend.**
+  It never applies to the plaintext-behind-a-token direct MCP-over-HTTP
+  endpoint's loopback boundary — see [remote-access](remote-access.md).
