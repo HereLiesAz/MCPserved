@@ -177,6 +177,10 @@ function resolveLaunch(useNpx: boolean): Launch {
     // with no local network path to it at all. See relay/README.md.
     "MCPSERVED_RELAY_URL",
     "MCPSERVED_RELAY_ROOM",
+    // Opt-in explicit host (a UPnP-mapped address, most commonly): dials that
+    // address directly instead of adb-forwarding a loopback port. Carried
+    // through the same way as everything above. See remote-access.md.
+    "MCPSERVED_HOST",
   ];
   for (const k of vars) {
     const v = process.env[k];

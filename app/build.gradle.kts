@@ -270,6 +270,10 @@ dependencies {
     // used by any default (local-only) path.
     implementation(libs.okhttp)
 
+    // UPnP IGD port mapping for the opt-in "reachable without a relay" path
+    // (UpnpPortMapper). Also not used by any default path.
+    implementation(libs.weupnp)
+
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
     // Shadows android.util.Base64 (used by FrameCodec/FrameSession) with a real

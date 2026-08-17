@@ -30,11 +30,15 @@ import com.hereliesaz.mcpserved.transport.LocalServer
 import com.hereliesaz.mcpserved.transport.McpBridge
 import com.hereliesaz.mcpserved.transport.McpServer
 import com.hereliesaz.mcpserved.transport.RemoteRelayClient
+import com.hereliesaz.mcpserved.transport.UpnpPortMapper
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
@@ -73,6 +77,18 @@ class ControlService : Service() {
         @Volatile
         var instance: ControlService? = null
             private set
+
+        /**
+         * Current UPnP mapping, if any — kept at class level, not per-instance,
+         * so the UI can observe it across the service's own restarts without
+         * juggling a nullable [instance] every recomposition. Cleared on
+         * disarm/teardown, same as the mapping itself is unmapped then.
+         */
+        private val _upnpMapping = MutableStateFlow<UpnpPortMapper.Mapping?>(null)
+        val upnpMapping: StateFlow<UpnpPortMapper.Mapping?> = _upnpMapping
+
+        /** How often an active mapping is re-requested — leases are not forever. */
+        private const val UPNP_RENEW_INTERVAL_MS = 5 * 60_000L
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -98,6 +114,8 @@ class ControlService : Service() {
 
     private lateinit var remoteAccess: RemoteAccessStore
     private var relayClient: RemoteRelayClient? = null
+    private var upnpMapper: UpnpPortMapper? = null
+    private var upnpJob: Job? = null
 
     private var wakeLock: PowerManager.WakeLock? = null
 
@@ -159,6 +177,21 @@ class ControlService : Service() {
             ).also { it.start() }
         }
 
+        // UPnP is opt-in and off by default. Like the relay, it reaches
+        // LocalServer's already sealed-frame port, never McpServer's — see
+        // UpnpPortMapper's doc for why. A failed/unavailable mapping (no
+        // router found, UPnP disabled, cellular) just leaves upnpMapping
+        // null; it is not treated as an error the service needs to react to.
+        if (remoteAccess.upnpEnabled) {
+            val mapper = UpnpPortMapper().also { upnpMapper = it }
+            upnpJob = scope.launch {
+                while (true) {
+                    _upnpMapping.value = mapper.mapPort()
+                    delay(UPNP_RENEW_INTERVAL_MS)
+                }
+            }
+        }
+
         // Advertise on the LAN only while paired and listening, so a desktop can
         // discover and dial the device directly over Wi-Fi. An unpaired or torn-
         // down server withdraws the record — there is nothing to reach then.
@@ -201,6 +234,9 @@ class ControlService : Service() {
         if (::advertiser.isInitialized) advertiser.stop()
         if (::mcpServer.isInitialized) mcpServer.stopServer()
         relayClient?.stop()
+        upnpJob?.cancel()
+        upnpMapper?.let { mapper -> scope.launch { mapper.unmapPort() } }
+        _upnpMapping.value = null
         if (::server.isInitialized) scope.launch { server.stop() }
         scope.cancel()
         instance = null

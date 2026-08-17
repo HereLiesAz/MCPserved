@@ -27,6 +27,10 @@ import { install, connect } from "./install.js";
  * reachable, the server upgrades to it for the richer accessibility surface
  * (semantic tree, per-app grants, notification mirror). `MCPSERVED_MODE` pins the
  * choice to `adb` or `app`; the default, `auto`, prefers the app and falls back.
+ * `MCPSERVED_HOST` makes app mode dial that address directly instead of
+ * `adb forward`-ing a loopback port — for a UPnP-mapped or LAN address the
+ * device advertised opt-in (see remote-access.md), where there is no adb path
+ * to fall back to in the first place.
  *
  * This process holds no authority of its own. In app mode it carries sealed
  * frames to a device that decides what to permit; in adb mode it is a thin shell
@@ -84,20 +88,33 @@ async function chooseLink(): Promise<Link> {
     );
   }
 
+  // An explicit host — a UPnP-mapped address, or any other address reachable
+  // without adb — means adb has nothing to bridge and nowhere useful to fall
+  // back to either: if this process can't reach the device directly, it has
+  // no local network path to it at all, the same premise `adb` would fail on.
+  const explicitHost = process.env.MCPSERVED_HOST;
+  if (explicitHost && mode === "adb") {
+    throw new Error("MCPSERVED_HOST is set, but MCPSERVED_MODE=adb has no use for it.");
+  }
+
   if (config) {
-    const app = new AppLink(config);
+    const app = new AppLink(config, explicitHost);
     try {
       const caps = await app.send({ op: "capabilities" }, 5_000);
       if (caps && caps.ok) return app;
     } catch {
-      // Unreachable app: fall through to the fallback below.
+      // Unreachable app: fall through to the fallback below, unless an
+      // explicit host was given — see above.
     }
     app.close();
-    if (mode === "app") {
+    if (mode === "app" || explicitHost) {
       throw new Error(
-        "MCPSERVED_MODE=app, but the on-device app did not answer over adb-forward. " +
-          "Check that it is installed, paired, and armed, and that the device is " +
-          "reachable (`adb devices`, or `adb connect <ip>:5555` for Wi-Fi).",
+        explicitHost
+          ? `MCPSERVED_HOST=${explicitHost} did not answer. Check that the device is ` +
+              "armed, remote access is enabled for that path, and the address/port are current."
+          : "MCPSERVED_MODE=app, but the on-device app did not answer over adb-forward. " +
+              "Check that it is installed, paired, and armed, and that the device is " +
+              "reachable (`adb devices`, or `adb connect <ip>:5555` for Wi-Fi).",
       );
     }
   }

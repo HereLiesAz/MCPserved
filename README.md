@@ -17,10 +17,12 @@ of its own — it sits downstream of a language model's output, which makes it
 the component least suited to being the thing that says yes.
 
 For a host with no local network path to the phone at all — a cloud-hosted AI
-session, say — two opt-in paths exist, off by default and gated behind their
-own disclosure in the app: a wider bind for use behind a private mesh, and a
-relay that carries the same sealed-frame protocol without ever being able to
-decrypt it. See [docs/guide/remote-access.md](docs/guide/remote-access.md).
+session, say — three opt-in paths exist, off by default and gated behind
+their own disclosure in the app: a wider bind for use behind a private mesh,
+a UPnP port mapping that reaches the phone directly with no relay and no
+third party, and a relay that carries the same sealed-frame protocol without
+ever being able to decrypt it. See
+[docs/guide/remote-access.md](docs/guide/remote-access.md).
 
 ## Shape
 

@@ -31,16 +31,17 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 
 /**
- * This phone, and nothing else. The only path here that needs no second
- * device of any kind — a relay dial-out, so an AI session running anywhere
- * (including one that has no local network path to this phone at all: a
- * cloud session, most notably) can reach it. Mesh bind, below it, is a
- * secondary option for someone who already has a private mesh and a
- * different device on it — it still needs that other device, so it isn't
- * "phone only" in the same sense.
+ * This phone, and nothing else. Two of the three paths here need no second
+ * device of any kind: UPnP, which tries to make the phone directly reachable
+ * with zero third party and zero hosting (works only on a Wi-Fi network
+ * whose router supports it — never on cellular), and a relay dial-out, which
+ * works from anywhere, including cellular, but needs a relay to already
+ * exist somewhere. Mesh bind, last, is a secondary option for someone who
+ * already has a private mesh and a *different* device on it — it still
+ * needs that other device, so it isn't "phone only" in the same sense.
  *
- * Both paths are off by default, gated behind one shared disclosure the
- * first time either is turned on.
+ * All three paths are off by default, gated behind one shared disclosure the
+ * first time any of them is turned on.
  */
 @Composable
 fun RemoteAccessScreen(vm: MainViewModel) {
@@ -48,6 +49,8 @@ fun RemoteAccessScreen(vm: MainViewModel) {
     val relayEnabled by vm.relayEnabled.collectAsState()
     val relayUrl by vm.relayUrl.collectAsState()
     val roomToken by vm.relayRoomToken.collectAsState()
+    val upnpEnabled by vm.upnpEnabled.collectAsState()
+    val upnpMapping by vm.upnpMapping.collectAsState()
     val hasAcceptedDisclosure by vm.hasAcceptedRemoteAccessDisclosure.collectAsState()
     val context = LocalContext.current
 
@@ -67,9 +70,10 @@ fun RemoteAccessScreen(vm: MainViewModel) {
             text = {
                 Text(
                     "This lets MCPserved be reached beyond the USB cable or Wi-Fi " +
-                        "network you're on right now — by a relay you point it at, or " +
-                        "by a private mesh you join separately. Neither is on until " +
-                        "you confirm here, and both stay off unless you turn them on " +
+                        "network you're on right now — by asking your router to open " +
+                        "a port automatically, by a relay you point it at, or by a " +
+                        "private mesh you join separately. None of these is on until " +
+                        "you confirm here, and all stay off unless you turn them on " +
                         "explicitly below."
                 )
             },
@@ -171,6 +175,44 @@ fun RemoteAccessScreen(vm: MainViewModel) {
             modifier = Modifier.fillMaxWidth()
         ) {
             Text("Rotate room token")
+        }
+
+        Spacer(Modifier.height(36.dp))
+
+        // ---- UPnP: zero hosting, zero third party, Wi-Fi only -------------
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("Try to open a port automatically (UPnP)", style = MaterialTheme.typography.titleMedium)
+            Switch(
+                checked = upnpEnabled,
+                onCheckedChange = { on ->
+                    if (on) requestEnable { vm.setUpnpEnabled(true) } else vm.setUpnpEnabled(false)
+                }
+            )
+        }
+        Spacer(Modifier.height(4.dp))
+        Text(
+            "No relay, no hosting, no third party — asks your router to forward " +
+                "a port straight to this phone. Only works on a Wi-Fi network whose " +
+                "router supports and allows UPnP; never on cellular, and some home " +
+                "routers ship with it turned off. Reaches the same already end-to-" +
+                "end encrypted sealed-frame protocol as the relay above. Your " +
+                "address can change if your router reassigns it or the mapping " +
+                "renews on a different port — it's rechecked every few minutes.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        if (upnpEnabled) {
+            Spacer(Modifier.height(8.dp))
+            Text(
+                upnpMapping?.let { "Reachable at: ${it.externalAddress}:${it.externalPort}" }
+                    ?: "Not mapped yet — arm the service, or this network doesn't support UPnP.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
 
         Spacer(Modifier.height(36.dp))

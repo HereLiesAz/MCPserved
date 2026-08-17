@@ -172,6 +172,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val _relayRoomToken = MutableStateFlow(relayToken.value())
     val relayRoomToken: StateFlow<String> = _relayRoomToken
 
+    private val _upnpEnabled = MutableStateFlow(remoteAccess.upnpEnabled)
+    val upnpEnabled: StateFlow<Boolean> = _upnpEnabled
+
+    /** The current UPnP mapping, if any — see [ControlService.upnpMapping]. */
+    val upnpMapping: StateFlow<com.hereliesaz.mcpserved.transport.UpnpPortMapper.Mapping?> =
+        ControlService.upnpMapping
+
     /** Addresses this device could be reached at if [wildcardMcpBind] is set. */
     val localAddresses: List<String>
         get() = runCatching {
@@ -200,6 +207,15 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun setRelayEnabled(enabled: Boolean) {
         remoteAccess.relayEnabled = enabled
         _relayEnabled.value = enabled
+    }
+
+    /**
+     * Sets whether the device tries UPnP port mapping. Takes effect the next
+     * time the service arms, same as [setWildcardMcpBind].
+     */
+    fun setUpnpEnabled(enabled: Boolean) {
+        remoteAccess.upnpEnabled = enabled
+        _upnpEnabled.value = enabled
     }
 
     fun setRelayUrl(url: String) {

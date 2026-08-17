@@ -90,9 +90,10 @@ The app's control server (`LocalServer`) binds the **IPv4 wildcard
 desktop reach it two ways: through an `adb forward tcp:8790 tcp:8790` tunnel
 onto its own `127.0.0.1` (the `AppLink` sets that up itself on connect), or
 directly over the LAN at an address the device advertised over mDNS (see
-`LanAdvertiser`). A third way exists only on explicit opt-in — dialing out to a
-relay (`RemoteRelayClient`) — covered separately below and in
-[remote-access](remote-access.md). All three carry the identical sealed-frame
+`LanAdvertiser`). Two more ways exist only on explicit opt-in — dialing out to
+a relay (`RemoteRelayClient`) and requesting a UPnP IGD port mapping
+(`UpnpPortMapper`) — covered separately below and in
+[remote-access](remote-access.md). All four carry the identical sealed-frame
 protocol; the bind address and the transport widen who can *reach the socket*,
 never who can *do anything with it*.
 
@@ -124,6 +125,25 @@ token over plaintext HTTP, safe specifically because loopback keeps it off any
 wire an eavesdropper could be on. The relay path is never offered for that
 endpoint — only for this already end-to-end-encrypted one — for exactly that
 reason.
+
+### The UPnP path — opt-in, direct, no third party
+
+`UpnpPortMapper` asks a UPnP IGD-capable router to forward an external port
+straight to this device's `LocalServer` port, off by default and gated behind
+the same disclosure as the relay path. Unlike the relay, there is no third
+party in the data path at all once the mapping is live — but for exactly that
+reason it is only ever offered for this already end-to-end-encrypted port,
+never the direct MCP endpoint below: a live mapping is reachable by anyone who
+finds it (the open internet gets port-scanned routinely), and only a protocol
+whose authorization boundary is the pairing key rather than the network being
+trusted is safe to expose that way. It only works on a Wi-Fi network whose
+router supports and permits UPnP — never on cellular, which has no router to
+ask — and many home routers ship with UPnP disabled. Discovery and mapping use
+a plain unicast `DatagramSocket` request/response (the `weupnp` library never
+joins a multicast group), so no additional Android permission beyond
+`INTERNET` is needed. The mapping is re-requested every few minutes rather
+than cached, since the external address or port can move under router DHCP
+churn or lease renewal.
 
 ## The direct MCP endpoint — bearer token over loopback HTTP
 
