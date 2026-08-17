@@ -57,6 +57,8 @@ fun RemoteAccessScreen(vm: MainViewModel) {
     val upnpEnabled by vm.upnpEnabled.collectAsState()
     val upnpMapping by vm.upnpMapping.collectAsState()
     val ipv6Enabled by vm.ipv6Enabled.collectAsState()
+    val cloudflareDeployState by vm.cloudflareDeployState.collectAsState()
+    var cloudflareTokenInput by remember { mutableStateOf("") }
     val hasAcceptedDisclosure by vm.hasAcceptedRemoteAccessDisclosure.collectAsState()
     val context = LocalContext.current
 
@@ -183,6 +185,64 @@ fun RemoteAccessScreen(vm: MainViewModel) {
             modifier = Modifier.fillMaxWidth()
         ) {
             Text("Rotate room token")
+        }
+
+        Spacer(Modifier.height(20.dp))
+
+        // ---- Deploy a relay to Cloudflare, from the phone, right here -----
+        Text("Deploy your own relay (beta)", style = MaterialTheme.typography.titleSmall)
+        Spacer(Modifier.height(4.dp))
+        Text(
+            "No relay exists until one is deployed somewhere. This does it from " +
+                "the phone — no computer, no terminal — using Cloudflare's API " +
+                "directly: paste an API token from dash.cloudflare.com → My " +
+                "Profile → API Tokens (\"Edit Cloudflare Workers\" template " +
+                "covers it), tap Deploy, and the URL above fills itself in. " +
+                "Free at this scale; nothing to maintain afterward. Unverified " +
+                "against a live account as of this build — if it fails, " +
+                "relay/cloudflare/README.md in the repo has the same deploy " +
+                "done the well-tested way, with `wrangler`.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(Modifier.height(8.dp))
+        OutlinedTextField(
+            value = cloudflareTokenInput,
+            onValueChange = {
+                cloudflareTokenInput = it
+                vm.setCloudflareApiToken(it)
+            },
+            label = { Text("Cloudflare API token") },
+            modifier = Modifier.fillMaxWidth()
+        )
+        Spacer(Modifier.height(8.dp))
+        Button(
+            onClick = vm::deployCloudflareRelay,
+            enabled = cloudflareDeployState !is MainViewModel.DeployState.Deploying,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text(
+                if (cloudflareDeployState is MainViewModel.DeployState.Deploying) "Deploying…" else "Deploy"
+            )
+        }
+        when (val state = cloudflareDeployState) {
+            is MainViewModel.DeployState.Done -> {
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "Deployed: ${state.url}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            is MainViewModel.DeployState.Error -> {
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    state.message,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error
+                )
+            }
+            else -> {}
         }
 
         Spacer(Modifier.height(36.dp))

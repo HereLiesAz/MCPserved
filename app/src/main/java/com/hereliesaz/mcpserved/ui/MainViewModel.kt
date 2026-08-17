@@ -182,6 +182,53 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val _ipv6Enabled = MutableStateFlow(remoteAccess.ipv6Enabled)
     val ipv6Enabled: StateFlow<Boolean> = _ipv6Enabled
 
+    // ---- Deploying a relay to the operator's own Cloudflare account -------
+
+    private val cloudflareToken = com.hereliesaz.mcpserved.crypto.CloudflareApiToken(app)
+    private val cloudflareDeployer = com.hereliesaz.mcpserved.transport.CloudflareRelayDeployer(app)
+
+    sealed class DeployState {
+        object Idle : DeployState()
+        object Deploying : DeployState()
+        data class Done(val url: String) : DeployState()
+        data class Error(val message: String) : DeployState()
+    }
+
+    private val _cloudflareDeployState = MutableStateFlow<DeployState>(DeployState.Idle)
+    val cloudflareDeployState: StateFlow<DeployState> = _cloudflareDeployState
+
+    /** Not a StateFlow: the token is write-mostly, read only when a deploy actually runs. */
+    fun setCloudflareApiToken(token: String) {
+        cloudflareToken.value = token
+    }
+
+    /**
+     * Deploys `relay/cloudflare/worker.js` (bundled as an asset) to the
+     * operator's own Cloudflare account and, on success, fills in [relayUrl]
+     * with the resulting address — no separate "now paste the URL" step.
+     * See [com.hereliesaz.mcpserved.transport.CloudflareRelayDeployer]'s doc
+     * for why this is unverified against a live account.
+     */
+    fun deployCloudflareRelay() {
+        val token = cloudflareToken.value
+        if (token.isBlank()) {
+            _cloudflareDeployState.value = DeployState.Error("Paste a Cloudflare API token first.")
+            return
+        }
+        _cloudflareDeployState.value = DeployState.Deploying
+        viewModelScope.launch {
+            when (val result = cloudflareDeployer.deploy(token)) {
+                is com.hereliesaz.mcpserved.transport.CloudflareRelayDeployer.Result.Success -> {
+                    setRelayUrl(result.url)
+                    _cloudflareDeployState.value = DeployState.Done(result.url)
+                }
+                is com.hereliesaz.mcpserved.transport.CloudflareRelayDeployer.Result.Failure -> {
+                    _cloudflareDeployState.value = DeployState.Error(result.message)
+                }
+            }
+        }
+    }
+
     /** Addresses this device could be reached at if [wildcardMcpBind] is set. */
     val localAddresses: List<String>
         get() = runCatching {

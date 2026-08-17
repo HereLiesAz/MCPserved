@@ -29,14 +29,26 @@ instance and it works with **no client code change** — only the URL differs.
 
 ## Deploy
 
+**From the app itself, no computer needed:** Remote Access tab → "Deploy
+your own relay (beta)" → paste a Cloudflare API token → Deploy. The app
+uploads this exact `worker.js` (bundled as an asset) straight to your
+account over Cloudflare's REST API — `CloudflareRelayDeployer.kt` does what
+`wrangler deploy` does below, just from the phone. It's marked beta because
+it was written against Cloudflare's documented API shape without a live
+account to test it against; if it fails, the CLI path below is the
+well-established fallback.
+
+**From a computer (or Termux on the phone itself), the well-tested way:**
+
 ```sh
 cd relay/cloudflare
 npm install -g wrangler        # or: npx wrangler ...
 wrangler deploy                # creates the Worker + Durable Object
 ```
 
-Copy the deployed URL, e.g. `https://mcpserved-relay.<you>.workers.dev` —
-use the `wss://` scheme when you configure it below; Cloudflare answers both.
+Either way, copy the deployed URL, e.g.
+`https://mcpserved-relay.<you>.workers.dev` — use the `wss://` scheme when
+you configure it below; Cloudflare answers both.
 
 ## Configure
 
