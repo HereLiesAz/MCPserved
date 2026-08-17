@@ -83,17 +83,18 @@ shared because the runtimes cannot import from each other; every constant — HK
 info strings, nonce layout, tag length, AAD — must match exactly, or frames fail
 authentication on arrival with no indication of which side is wrong.
 
-## Wildcard binding, reached via adb-forward, the LAN, or a relay
+## Wildcard binding, reached via adb-forward, the LAN, IPv6, UPnP, or a relay
 
 The app's control server (`LocalServer`) binds the **IPv4 wildcard
 (`0.0.0.0`)**, port `8790` by default — not loopback. This is what lets a
 desktop reach it two ways: through an `adb forward tcp:8790 tcp:8790` tunnel
 onto its own `127.0.0.1` (the `AppLink` sets that up itself on connect), or
 directly over the LAN at an address the device advertised over mDNS (see
-`LanAdvertiser`). Two more ways exist only on explicit opt-in — dialing out to
-a relay (`RemoteRelayClient`) and requesting a UPnP IGD port mapping
-(`UpnpPortMapper`) — covered separately below and in
-[remote-access](remote-access.md). All four carry the identical sealed-frame
+`LanAdvertiser`). Three more ways exist only on explicit opt-in — listening
+directly on the device's own global IPv6 address (`setIpv6Enabled`),
+requesting a UPnP IGD port mapping (`UpnpPortMapper`), and dialing out to a
+relay (`RemoteRelayClient`) — covered separately below and in
+[remote-access](remote-access.md). All five carry the identical sealed-frame
 protocol; the bind address and the transport widen who can *reach the socket*,
 never who can *do anything with it*.
 
@@ -105,17 +106,45 @@ shared secret gets no answer and no acknowledgement that anything is listening
 even confirm the device is here or which device it is). The grant table then
 decides, per package, what an authenticated peer may actually do.
 
-Connections are served **one at a time**, strictly serial; a second dialer waits
-in the backlog.
+Each of the five listens on its own socket and serves that socket's
+connections one at a time, strictly serial — but with both the IPv4 and the
+opt-in IPv6 socket live, two connections can be in flight at once, one on
+each. `Dispatcher.handle` guards its own state with a mutex specifically so
+that stays correct rather than relying on there being only one accept loop.
+
+### The IPv6 path — opt-in, no NAT to defeat
+
+`LocalServer.setIpv6Enabled` binds a second `ServerSocket` to the device's
+current global IPv6 unicast address — not the IPv6 wildcard `::`, which would
+contend with the IPv4 socket already bound to `0.0.0.0` above for the same
+port on most stacks; a concrete address sidesteps that ambiguity entirely.
+Off by default and gated behind the same disclosure as the relay path.
+
+This is the one opt-in path with no intermediary of any kind, not even a
+router: IPv6 addresses are globally routable without NAT, so a global address
+is, definitionally, already reachable from anywhere that isn't specifically
+firewalled off. That "isn't specifically firewalled off" is doing real work,
+though — home routers commonly pass IPv6 straight through (nothing to
+configure, since there is no NAT translation step to insert a rule into), but
+cellular carriers vary, and some run a stateful firewall on IPv6 for the exact
+reason a phone listening on a public address is normally a bad idea. The app
+has no way to detect or influence that from either side.
+
+The address itself is not stable: Android's RFC 4941 privacy addresses rotate
+periodically, and any network change replaces it outright. A supervisory loop
+rechecks every few minutes and rebinds when it changes, tearing down the old
+socket first — see `LocalServer`'s KDoc for why running the IPv4 and IPv6
+accept loops concurrently is safe despite each looking, on its own, like it
+assumes strict single-connection serialization.
 
 ### The relay path — opt-in, blind by construction
 
 `RemoteRelayClient` dials a relay URL the operator configures, off by default
 and gated behind its own prominent disclosure (see
-[android-app](android-app.md)). It carries the **same sealed frames** as the
-adb-forward and LAN paths above — `FrameSession` is the identical handshake
-and dispatch logic all three transports share (extracted from what used to be
-`LocalServer`'s own inline connection handler) — so the relay operator, whoever
+[android-app](android-app.md)). It carries the **same sealed frames** as every
+path above — `FrameSession` is the identical handshake and dispatch logic all
+of them share (extracted from what used to be `LocalServer`'s own inline
+connection handler) — so the relay operator, whoever
 runs it, only ever forwards ChaCha20-Poly1305 ciphertext it holds no key for.
 See `relay/README.md` for the relay's own (deliberately dumb) protocol.
 

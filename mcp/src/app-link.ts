@@ -16,8 +16,8 @@ const PROTO_VERSION = 2;
  * onto it, and this link dials that — a USB cable or an adb-over-Wi-Fi session
  * the user established. Passing a non-default `host` (via `MCPSERVED_HOST`,
  * see `index.ts`) skips the `adb forward` step entirely and dials that address
- * straight — the shape a UPnP-mapped or LAN address needs, since neither is
- * reachable through `adb`. Either way the sealed frames never leave the pair
+ * straight — the shape an IPv6, UPnP-mapped, or LAN address needs, since none
+ * is reachable through `adb`. Either way the sealed frames never leave the pair
  * of machines: `host` only changes how the socket gets opened, not the
  * pairing key that authenticates what travels over it.
  *

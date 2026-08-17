@@ -29,9 +29,9 @@ until paired, and cannot act until a package is granted.
 
 ### The remote-access disclosure
 
-A second, later, narrower gate covers the three opt-in remote-access paths
+A second, later, narrower gate covers the four opt-in remote-access paths
 (see [remote-access](remote-access.md)): the first time the operator turns on
-the wider-bind, UPnP, or relay toggle on the "Connect a model" screen, a
+the wider-bind, IPv6, UPnP, or relay toggle on the "Connect a model" screen, a
 dialog explains what turning it on actually does before the switch takes
 effect. Declining leaves the switch off; accepting is recorded as a second
 durable bit (`ConsentStore.acceptRemoteAccess`), separate from the

@@ -192,6 +192,11 @@ class ControlService : Service() {
             }
         }
 
+        // IPv6 is opt-in and off by default, same disclosure gate as the other
+        // three paths. There is no NAT to defeat for IPv6, so unlike UPnP this
+        // needs no router cooperation — see LocalServer.setIpv6Enabled's doc.
+        server.setIpv6Enabled(remoteAccess.ipv6Enabled)
+
         // Advertise on the LAN only while paired and listening, so a desktop can
         // discover and dial the device directly over Wi-Fi. An unpaired or torn-
         // down server withdraws the record — there is nothing to reach then.
