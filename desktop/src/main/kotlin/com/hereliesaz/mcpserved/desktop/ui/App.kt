@@ -268,7 +268,9 @@ private fun PairScreen(controller: AppController) {
         )
 
         Text(
-            "1.  On the phone, open MCPserved → Pair and copy the string under its QR code.\n" +
+            "1.  On the phone, open MCPserved → Pair → \"Send this code to your computer\" " +
+                "— the QR there is for the phone to scan in step 3, not for this screen; " +
+                "typing that string by hand isn't realistic, so use the share button instead.\n" +
                 "2.  Paste it below and press Pair.\n" +
                 "3.  Scan the QR that appears here back on the phone to finish.",
             style = MaterialTheme.typography.bodyMedium,

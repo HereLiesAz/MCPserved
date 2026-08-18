@@ -1,5 +1,6 @@
 package com.hereliesaz.mcpserved.ui
 
+import android.content.Intent
 import android.graphics.Bitmap
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.foundation.Image
@@ -25,6 +26,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.qrcode.QRCodeWriter
@@ -47,6 +49,7 @@ fun DesktopBridgeScreen(vm: MainViewModel) {
     val payload by vm.pairPayload.collectAsState()
     val paired by vm.isPaired.collectAsState()
     var scanError by remember { mutableStateOf<String?>(null) }
+    val context = LocalContext.current
 
     val scanner = rememberLauncherForActivityResult(ScanContract()) { result ->
         val contents = result.contents
@@ -124,6 +127,28 @@ fun DesktopBridgeScreen(vm: MainViewModel) {
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
+
+        Spacer(Modifier.height(12.dp))
+
+        // The QR above only helps if something with a camera is pointed at
+        // this screen — a desktop app has no reliable way to do that. Typing
+        // or hand-copying a payload this long across two different devices
+        // isn't realistic either. Sharing it is: whatever channel already
+        // moves text from this phone to that computer (a synced clipboard
+        // app, a chat open on both, email-to-self) works without asking the
+        // operator to transcribe a pairing key by hand.
+        OutlinedButton(
+            onClick = {
+                val intent = Intent(Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(Intent.EXTRA_TEXT, payload)
+                }
+                context.startActivity(Intent.createChooser(intent, "Send to your computer"))
+            },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Send this code to your computer")
+        }
 
         Spacer(Modifier.height(32.dp))
 
