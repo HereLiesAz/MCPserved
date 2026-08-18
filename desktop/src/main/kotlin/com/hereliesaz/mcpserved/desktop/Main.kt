@@ -76,7 +76,8 @@ private fun cliPair() {
     println("Open MCPserved on the device, go to Pair, and paste the string under its QR code:")
     val payload = readlnOrNull()?.trim().orEmpty()
     try {
-        val result = PairingFlow.pairFromPayload(payload)
+        val identity = PairingFlow.startPairing()
+        val result = PairingFlow.completeWithPayload(payload, identity.keyPair)
         println("\nPaired with ${result.deviceId}.")
         println("Now scan this back on the device to complete the exchange:\n")
         println(result.reply)

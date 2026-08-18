@@ -268,13 +268,26 @@ private fun PairScreen(controller: AppController) {
         )
 
         Text(
-            "1.  On the phone, open MCPserved → Pair → \"Send this code to your computer\" " +
-                "— the QR there is for the phone to scan in step 3, not for this screen; " +
-                "typing that string by hand isn't realistic, so use the share button instead.\n" +
-                "2.  Paste it below and press Pair.\n" +
-                "3.  Scan the QR that appears here back on the phone to finish.",
+            "1.  On the phone, open MCPserved → Pair → \"Scan the server's code\" and point it at the " +
+                "QR below — no typing needed.\n" +
+                "2.  The phone will then show its own code. Use its \"Send this code to your computer\" " +
+                "button to get that string here (typing a key this long by hand isn't realistic).\n" +
+                "3.  Paste it below and press Pair.",
             style = MaterialTheme.typography.bodyMedium,
         )
+        Spacer(Modifier.height(16.dp))
+
+        val qr = controller.deviceQr
+        Image(
+            bitmap = remember(qr) { qrImage(qr.qr) },
+            contentDescription = "this computer's pairing QR",
+        )
+        Spacer(Modifier.height(12.dp))
+        SelectionContainer {
+            Text(qr.qr, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
+        }
+        Spacer(Modifier.height(24.dp))
+        HorizontalDivider()
         Spacer(Modifier.height(16.dp))
 
         OutlinedTextField(
@@ -297,21 +310,11 @@ private fun PairScreen(controller: AppController) {
             Text("Pairing failed: $it", color = MaterialTheme.colorScheme.error)
         }
 
-        controller.pairReply?.let { reply ->
-            Spacer(Modifier.height(24.dp))
-            HorizontalDivider()
+        if (controller.paired) {
             Spacer(Modifier.height(16.dp))
-            Text("Scan this on the phone to complete pairing", style = MaterialTheme.typography.titleMedium)
-            Spacer(Modifier.height(12.dp))
-            Image(bitmap = remember(reply) { qrImage(reply) }, contentDescription = "pairing QR")
-            Spacer(Modifier.height(12.dp))
-            SelectionContainer {
-                Text(reply, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
-            }
-            Spacer(Modifier.height(8.dp))
             Text(
-                "The phone shows 'Paired' once it has the key. Then arm the service — the desktop finds " +
-                    "it on Wi-Fi automatically, or bridges over adb.",
+                "Paired with ${controller.pairedDeviceId}. Arm the service on the phone — the desktop " +
+                    "finds it on Wi-Fi automatically, or bridges over adb.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
