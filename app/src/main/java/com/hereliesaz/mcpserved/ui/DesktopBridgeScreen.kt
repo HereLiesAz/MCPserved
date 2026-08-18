@@ -5,15 +5,18 @@ import android.graphics.Bitmap
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -48,6 +51,7 @@ import android.graphics.Color as AndroidColor
 fun DesktopBridgeScreen(vm: MainViewModel) {
     val payload by vm.pairPayload.collectAsState()
     val paired by vm.isPaired.collectAsState()
+    val pushStatus by vm.pairPushStatus.collectAsState()
     var scanError by remember { mutableStateOf<String?>(null) }
     val context = LocalContext.current
 
@@ -103,8 +107,11 @@ fun DesktopBridgeScreen(vm: MainViewModel) {
                 "A desktop server holds the matching key. It still cannot touch " +
                     "anything without a grant."
             } else {
-                "Only for the desktop `mcpserved` bridge — the adb quick-connect " +
-                    "path. Run `npx mcpserved pair` and give it the string below."
+                "Open MCPserved on your computer — its Pair screen shows a QR right away. " +
+                    "Tap \"Scan the server's code\" below and point this phone's camera at " +
+                    "it; pairing finishes on its own. The code and button above that are " +
+                    "only for the adb-only, no-shared-Wi-Fi case: `npx mcpserved pair` in a " +
+                    "terminal."
             },
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -174,6 +181,27 @@ fun DesktopBridgeScreen(vm: MainViewModel) {
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.error
             )
+        }
+
+        when (val status = pushStatus) {
+            is MainViewModel.PairPushStatus.Pushing -> {
+                Spacer(Modifier.height(16.dp))
+                Row {
+                    CircularProgressIndicator(modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(12.dp))
+                    Text("Sending your key to the desktop…", style = MaterialTheme.typography.bodyMedium)
+                }
+            }
+            is MainViewModel.PairPushStatus.Failed -> {
+                Spacer(Modifier.height(16.dp))
+                Text(
+                    "Couldn't reach the desktop: ${status.message}. Make sure both are on the same " +
+                        "Wi-Fi, then scan its code again.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.error
+                )
+            }
+            is MainViewModel.PairPushStatus.Idle -> {}
         }
 
         Spacer(Modifier.height(40.dp))

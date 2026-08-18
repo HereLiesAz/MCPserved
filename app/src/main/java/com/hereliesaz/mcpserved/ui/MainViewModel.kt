@@ -17,6 +17,7 @@ import com.hereliesaz.mcpserved.service.ControlService
 import com.hereliesaz.mcpserved.service.McpAccessibilityService
 import com.hereliesaz.mcpserved.transport.DesktopDiscovery
 import com.hereliesaz.mcpserved.transport.McpServer
+import com.hereliesaz.mcpserved.transport.PairingPush
 import com.hereliesaz.mcpserved.transport.Scope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -79,6 +80,16 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     private val _isPaired = MutableStateFlow(pairing.isPaired)
     val isPaired: StateFlow<Boolean> = _isPaired
+
+    /** Live status of the automatic LAN push that finishes a desktop QR scan. */
+    sealed class PairPushStatus {
+        data object Idle : PairPushStatus()
+        data object Pushing : PairPushStatus()
+        data class Failed(val message: String) : PairPushStatus()
+    }
+
+    private val _pairPushStatus = MutableStateFlow<PairPushStatus>(PairPushStatus.Idle)
+    val pairPushStatus: StateFlow<PairPushStatus> = _pairPushStatus
 
     private val mcpToken = McpToken(app)
 
@@ -439,12 +450,52 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         refreshApps()
     }
 
-    /** Completes pairing from a scanned reply payload. */
+    /**
+     * Completes pairing from a scanned code.
+     *
+     * Two shapes: a desktop's live pairing QR (`mcpserved-pair:1:…`), which
+     * carries its LAN address and a one-time token — scanning it is the whole
+     * exchange, since this device immediately pushes its own public key back
+     * over the network with no further step from the operator (see
+     * [PairingPush]). Or the older reciprocal reply (`mcpserved:2:…`) the
+     * `mcpserved pair` terminal command prints for the no-shared-LAN, adb-only
+     * case, where the operator scans it back by hand because there is nothing
+     * to push to.
+     *
+     * @return false only when [scanned] matches neither shape; a push that
+     *   later fails is reported through [pairPushStatus] instead, since the
+     *   scan itself was a valid pairing code.
+     */
     fun completePairing(scanned: String): Boolean {
+        Pairing.DesktopPairingRequest.decode(scanned)?.let { request ->
+            pushToDesktop(request)
+            return true
+        }
+
         val payload = Pairing.QrPayload.decode(scanned) ?: return false
         val ok = pairing.completePairing(payload.devicePublicKey)
         _isPaired.value = pairing.isPaired
         return ok
+    }
+
+    private fun pushToDesktop(request: Pairing.DesktopPairingRequest) {
+        _pairPushStatus.value = PairPushStatus.Pushing
+        val myPublicKey = pairing.currentPayload().devicePublicKey
+        val deviceId = pairing.deviceId
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching {
+                    PairingPush.push(request.host, request.port, request.token, deviceId, myPublicKey)
+                }
+            }
+            result.onSuccess {
+                pairing.completePairing(request.desktopPublicKey)
+                _isPaired.value = pairing.isPaired
+                _pairPushStatus.value = PairPushStatus.Idle
+            }.onFailure { e ->
+                _pairPushStatus.value = PairPushStatus.Failed(e.message ?: "couldn't reach the desktop")
+            }
+        }
     }
 
     /**
