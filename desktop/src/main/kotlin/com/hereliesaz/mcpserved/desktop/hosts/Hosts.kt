@@ -157,6 +157,17 @@ object Hosts {
 
         val binary = if (isWindows) "claude.cmd" else "claude"
         return try {
+            // `claude mcp add` refuses to replace an existing entry, so
+            // re-running install (e.g. after the relay URL changes) would
+            // otherwise fail with "already exists" instead of updating it.
+            // Removing first — ignoring failure when there was nothing to
+            // remove — makes this call idempotent.
+            runCatching {
+                val rm = ProcessBuilder(binary, "mcp", "remove", SERVER_NAME, "-s", "user")
+                    .redirectErrorStream(true).start()
+                rm.inputStream.readBytes()
+                rm.waitFor()
+            }
             val p = ProcessBuilder(listOf(binary) + cmd).redirectErrorStream(true).start()
             p.inputStream.readBytes()
             val code = p.waitFor()

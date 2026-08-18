@@ -146,7 +146,7 @@ fun RemoteAccessScreen(vm: MainViewModel) {
                 awaitingShare = false
                 val intent = Intent(Intent.ACTION_SEND).apply {
                     type = "text/plain"
-                    putExtra(Intent.EXTRA_TEXT, vm.relayConnectString())
+                    putExtra(Intent.EXTRA_TEXT, vm.relayConnectString(state.url))
                 }
                 context.startActivity(Intent.createChooser(intent, "Send to your AI assistant"))
             } else if (state is ControlService.Companion.TunnelState.Error) {
@@ -243,7 +243,7 @@ fun RemoteAccessScreen(vm: MainViewModel) {
             onClick = {
                 val intent = Intent(Intent.ACTION_SEND).apply {
                     type = "text/plain"
-                    putExtra(Intent.EXTRA_TEXT, vm.relayConnectString())
+                    putExtra(Intent.EXTRA_TEXT, vm.relayConnectString(relayUrl))
                 }
                 context.startActivity(Intent.createChooser(intent, "Send to your AI assistant"))
             },
