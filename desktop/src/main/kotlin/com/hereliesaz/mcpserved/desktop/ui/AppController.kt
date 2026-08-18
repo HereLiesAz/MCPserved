@@ -16,6 +16,7 @@ import com.hereliesaz.mcpserved.desktop.net.Target
 import com.hereliesaz.mcpserved.desktop.net.boolOr
 import com.hereliesaz.mcpserved.desktop.net.isOk
 import com.hereliesaz.mcpserved.desktop.pair.PairingFlow
+import com.hereliesaz.mcpserved.desktop.pair.PairingResponder
 import com.hereliesaz.mcpserved.desktop.service.ServiceInstaller
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -64,25 +65,54 @@ class AppController(private val scope: CoroutineScope) {
     var busy by mutableStateOf(false)
         private set
 
-    var pairInput by mutableStateOf("")
-    var pairReply by mutableStateOf<String?>(null)
-        private set
-    var pairError by mutableStateOf<String?>(null)
+    /** Live status of the automatic exchange for whatever [deviceQr] is showing. */
+    sealed class PairStatus {
+        data object Listening : PairStatus()
+        data class Failed(val message: String) : PairStatus()
+    }
+
+    var pairStatus by mutableStateOf<PairStatus>(PairStatus.Listening)
         private set
 
+    private val pairingResponder = PairingResponder()
+
     /**
-     * This machine's own pairing QR — generated the moment [AppController] is
-     * constructed, not gated behind [pairInput]/[pair]. [pendingIdentity] holds
-     * the matching keypair privately so [pair] finishes with the *same* key
-     * this QR already showed, rather than minting a fresh one the device's
-     * scan wouldn't match.
+     * This machine's own pairing QR — generated, and immediately listened
+     * for, the moment [AppController] is constructed. There is no second
+     * step: the instant the phone's camera reads it, [pairingResponder]
+     * hears the phone's public key come back over the LAN, authenticated by
+     * the token the QR already carried, and the exchange finishes with no
+     * further action from the operator.
      */
     var deviceQr by mutableStateOf(PairingFlow.startPairing())
         private set
 
-    /** Mints a fresh identity, invalidating whatever [deviceQr] showed before. */
+    /** Mints a fresh identity and starts listening for it again. */
     fun regenerateDeviceQr() {
         deviceQr = PairingFlow.startPairing()
+        listenForPairing()
+    }
+
+    private fun listenForPairing() {
+        val identity = deviceQr
+        pairStatus = PairStatus.Listening
+        pairingResponder.listen(identity.token) { result -> handlePairResult(identity, result) }
+    }
+
+    private fun handlePairResult(identity: PairingFlow.Identity, result: kotlin.Result<PairingResponder.Submission>) {
+        scope.launch {
+            onMain {
+                result.onSuccess { submission ->
+                    val outcome = PairingFlow.completeAuto(identity, submission)
+                    paired = true
+                    pairedDeviceId = outcome.deviceId
+                    log("paired with ${outcome.deviceId}")
+                }.onFailure { e ->
+                    pairStatus = PairStatus.Failed(e.message ?: "pairing failed")
+                    log("pairing failed: ${e.message}")
+                }
+            }
+        }
     }
 
     val hostOutcomes = mutableStateListOf<String>()
@@ -97,6 +127,7 @@ class AppController(private val scope: CoroutineScope) {
         toggleDiscovery(true)
         scope.launch { refreshAdb() }
         refreshService()
+        if (!paired) listenForPairing()
     }
 
     private suspend fun onMain(block: () -> Unit) = withContext(Dispatchers.Main) { block() }
@@ -201,35 +232,10 @@ class AppController(private val scope: CoroutineScope) {
         }
     }
 
-    fun pair() {
-        val input = pairInput.trim()
-        if (input.isEmpty()) return
-        val identity = deviceQr
-        scope.launch {
-            onMain { busy = true; pairError = null }
-            val result = withContext(Dispatchers.IO) {
-                runCatching { PairingFlow.completeWithPayload(input, identity.keyPair) }
-            }
-            onMain {
-                busy = false
-                result.onSuccess {
-                    pairReply = it.reply
-                    paired = true
-                    pairedDeviceId = it.deviceId
-                    log("paired with ${it.deviceId}")
-                }.onFailure {
-                    pairError = it.message
-                    log("pairing failed: ${it.message}")
-                }
-            }
-        }
-    }
-
     fun unpair() {
         ConfigStore.clear()
         paired = false
         pairedDeviceId = null
-        pairReply = null
         regenerateDeviceQr()
         log("unpaired — device keys discarded")
     }
@@ -295,5 +301,6 @@ class AppController(private val scope: CoroutineScope) {
     fun dispose() {
         discovery.stop()
         advertiser.stop()
+        pairingResponder.stop()
     }
 }

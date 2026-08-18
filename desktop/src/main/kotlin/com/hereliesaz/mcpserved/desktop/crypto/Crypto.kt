@@ -87,6 +87,25 @@ object Crypto {
         }
         return out
     }
+
+    /**
+     * HMAC-SHA256, keyed by a pairing [token] — authenticates the phone's
+     * automatic pairing-completion message (see `pair/PairingResponder.kt`).
+     * The device mirrors this exact construction.
+     */
+    fun hmacSha256(token: ByteArray, message: String): ByteArray {
+        val mac = javax.crypto.Mac.getInstance("HmacSHA256")
+        mac.init(javax.crypto.spec.SecretKeySpec(token, "HmacSHA256"))
+        return mac.doFinal(message.toByteArray(Charsets.UTF_8))
+    }
+
+    /** Constant-time comparison, so verifying a pairing tag leaks no timing signal. */
+    fun constantTimeEquals(a: ByteArray, b: ByteArray): Boolean {
+        if (a.size != b.size) return false
+        var diff = 0
+        for (i in a.indices) diff = diff or (a[i].toInt() xor b[i].toInt())
+        return diff == 0
+    }
 }
 
 /** Raised on replay, authentication failure, or malformed frames. */

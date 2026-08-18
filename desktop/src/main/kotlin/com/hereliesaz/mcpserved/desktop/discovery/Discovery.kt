@@ -1,6 +1,6 @@
 package com.hereliesaz.mcpserved.desktop.discovery
 
-import java.net.InetAddress
+import com.hereliesaz.mcpserved.desktop.net.LanAddress
 import java.util.concurrent.ConcurrentHashMap
 import javax.jmdns.JmDNS
 import javax.jmdns.ServiceEvent
@@ -49,7 +49,7 @@ class DeviceDiscovery {
     fun start(onChange: () -> Unit) {
         if (jmdns != null) return
         this.onChange = onChange
-        val md = JmDNS.create(bindAddress())
+        val md = JmDNS.create(LanAddress.resolve())
         val l = object : ServiceListener {
             override fun serviceAdded(event: ServiceEvent) {
                 // Resolution is asynchronous; ask for the details explicitly.
@@ -95,19 +95,4 @@ class DeviceDiscovery {
         val display = name.substringBefore(".$SERVICE_TYPE").ifBlank { deviceId }
         return DiscoveredDevice(deviceId = deviceId, host = host, port = port, name = display)
     }
-
-    /**
-     * Picks an address to bind the responder to.
-     *
-     * A site-local address keeps discovery on the real LAN interface rather than
-     * loopback, where nothing would ever answer. Falls back to the default local
-     * host when no site-local address is found.
-     */
-    private fun bindAddress(): InetAddress? = runCatching {
-        java.net.NetworkInterface.getNetworkInterfaces().toList()
-            .filter { it.isUp && !it.isLoopback && !it.isVirtual }
-            .flatMap { it.inetAddresses.toList() }
-            .firstOrNull { it.isSiteLocalAddress && it is java.net.Inet4Address }
-            ?: InetAddress.getLocalHost()
-    }.getOrNull()
 }

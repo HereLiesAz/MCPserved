@@ -90,11 +90,17 @@ class CloudflareTunnel(private val appContext: Context) {
     private fun awaitUrl(proc: Process): String? {
         val deadline = System.currentTimeMillis() + TIMEOUT_MS
         val watchdog = Thread {
-            while (System.currentTimeMillis() < deadline) {
-                if (process !== proc) return@Thread
-                Thread.sleep(500)
+            try {
+                while (System.currentTimeMillis() < deadline) {
+                    if (process !== proc) return@Thread
+                    Thread.sleep(500)
+                }
+                if (process === proc) proc.destroy()
+            } catch (_: InterruptedException) {
+                // The normal shutdown path: awaitUrl() found a URL (or the
+                // process ended) and interrupts this thread in its `finally`
+                // block to stop the wait early. Nothing to do — just exit.
             }
-            if (process === proc) proc.destroy()
         }.apply { isDaemon = true; start() }
 
         try {

@@ -3,61 +3,98 @@ package com.hereliesaz.mcpserved.desktop.pair
 import com.hereliesaz.mcpserved.desktop.config.ConfigStore
 import com.hereliesaz.mcpserved.desktop.config.StoredConfig
 import com.hereliesaz.mcpserved.desktop.crypto.Crypto
+import com.hereliesaz.mcpserved.desktop.net.LanAddress
+import java.security.SecureRandom
 
 /**
  * One-time pairing between this machine and a device, for the app backend.
- *
- * Both public keys travel out of band, by QR code, in both directions, so no
- * third party ever sits in the exchange that establishes trust. The shared secret
- * then authenticates this server when it later connects to the device's control
- * port — over the LAN once discovered, or through an `adb forward` tunnel.
  *
  * The exchange establishes only that the two endpoints share a secret. It says
  * nothing about authority: what the device will actually permit is decided
  * afterwards, per package, in the grants screen.
  *
- * The two legs are independent on purpose: [startPairing] needs nothing from the
- * device, so this machine's QR is ready to scan the moment the pairing screen
- * opens — not gated behind the operator having already typed or pasted the
- * device's own payload in first. [completeWithPayload] is the second, separate
- * leg, consuming whatever payload the device eventually provides and finishing
- * the exchange with the *same* keypair already shown — generating a fresh one at
- * that point instead would leave the device holding a shared secret for a key
- * this machine no longer has.
+ * A single scan finishes the whole thing. This machine's public key, LAN
+ * address, and a one-time [PairingResponder] token all travel out of band
+ * together, in the one QR the device's camera reads — nothing here is typed
+ * or pasted by a person. The moment the device scans it, it computes the
+ * pairing locally and pushes its own public key straight back over the LAN,
+ * authenticated by that same token (see `PairingResponder`), so the operator
+ * never sees a second code. [startPairing] mints the identity and QR the
+ * instant the pairing screen opens — not gated behind anything the device
+ * has to provide first — and [completeAuto] finishes the exchange when
+ * [PairingResponder] delivers the device's side.
+ *
+ * [completeWithPayload] remains for the one case with no shared LAN at all:
+ * the `mcpserved pair` terminal command, bridging over `adb forward` alone,
+ * where the device's payload is retyped from its own QR instead.
  */
 object PairingFlow {
 
-    /** This machine's freshly generated keypair, plus its QR-ready encoding. */
-    data class Identity(val keyPair: Crypto.RawKeyPair, val qr: String)
+    /**
+     * This machine's freshly generated keypair, the matching [PairingResponder]
+     * token, and the QR encoding that carries both (plus this machine's LAN
+     * address) to the device's camera in one shot.
+     */
+    data class Identity(val keyPair: Crypto.RawKeyPair, val token: ByteArray, val qr: String)
 
-    /** The reply payload to show the device, plus the id it paired under. */
-    data class Result(val reply: String, val deviceId: String)
+    /** The id the device paired under. */
+    data class Result(val deviceId: String)
 
     /**
-     * Generates this machine's keypair and its QR encoding immediately — no
-     * device input required. Call once per pairing attempt (a fresh call
-     * mints a fresh identity, invalidating whatever was shown before); the
-     * result is held by the caller and handed back to [completeWithPayload]
-     * once the device's payload arrives.
+     * The `adb` fallback's result: the id the device paired under, plus this
+     * machine's own reply payload — there is no LAN push in that path, so the
+     * operator has to scan (or the CLI has to print) this back to the device
+     * by hand, the same way pairing worked before the LAN auto-push existed.
+     */
+    data class CliResult(val deviceId: String, val reply: String)
+
+    /**
+     * Generates this machine's keypair and pairing token and builds the QR
+     * encoding immediately — no device input required. Call once per pairing
+     * attempt (a fresh call mints a fresh identity and token, invalidating
+     * whatever was shown before); the result is held by the caller and handed
+     * back to [completeAuto] once [PairingResponder] delivers the device's
+     * submission.
      */
     fun startPairing(): Identity {
         val keyPair = Crypto.generateKeyPair()
-        // "desktop" here is never read back — MainViewModel.completePairing on the
-        // device only inspects the public-key field of whatever it scans. It's
-        // filled in only because the wire format is a fixed 4-part shape shared by
-        // both directions, not because either side gives this value any meaning.
-        val qr = listOf("mcpserved", "2", "desktop", Crypto.b64Url(keyPair.publicKey)).joinToString(":")
-        return Identity(keyPair, qr)
+        val token = ByteArray(16).also { SecureRandom().nextBytes(it) }
+        val host = LanAddress.resolve()?.hostAddress ?: "0.0.0.0"
+        val qr = listOf(
+            "mcpserved-pair",
+            "1",
+            Crypto.b64Url(keyPair.publicKey),
+            host,
+            PairingResponder.PORT.toString(),
+            Crypto.b64Url(token),
+        ).joinToString(":")
+        return Identity(keyPair, token, qr)
     }
 
     /**
-     * Consumes the device's QR payload and persists the pairing, using the
-     * keypair [startPairing] already generated and already showed — not a new
-     * one — so this leg's result matches what the device scanned.
+     * Persists the pairing from a [PairingResponder.Submission] already
+     * verified against [identity]'s token, using the same keypair the QR
+     * already showed.
+     */
+    fun completeAuto(identity: Identity, submission: PairingResponder.Submission): Result {
+        ConfigStore.save(
+            StoredConfig(
+                deviceId = submission.deviceId,
+                serverPrivateKey = Crypto.b64(identity.keyPair.privateKey),
+                devicePublicKey = Crypto.b64(submission.devicePublicKey),
+            ),
+        )
+        return Result(submission.deviceId)
+    }
+
+    /**
+     * The `adb`-only fallback: consumes a device's own QR payload — the
+     * `mcpserved:2:…` format it always shows, typed or pasted in from a
+     * terminal — and persists the pairing using [keyPair].
      *
      * @throws IllegalArgumentException when the payload is not a v2 MCPserved pairing
      */
-    fun completeWithPayload(payload: String, keyPair: Crypto.RawKeyPair): Result {
+    fun completeWithPayload(payload: String, keyPair: Crypto.RawKeyPair): CliResult {
         val parts = payload.trim().split(":")
         require(parts.size == 4 && parts[0] == "mcpserved" && parts[1] == "2") {
             "that is not an MCPserved v2 pairing payload"
@@ -75,8 +112,8 @@ object PairingFlow {
             ),
         )
 
-        // Same envelope shape the device emits, so one scanner handles both directions.
+        // Same envelope shape the device emits, so its one scanner handles both directions.
         val reply = listOf("mcpserved", "2", deviceId, Crypto.b64Url(keyPair.publicKey)).joinToString(":")
-        return Result(reply, deviceId)
+        return CliResult(deviceId, reply)
     }
 }

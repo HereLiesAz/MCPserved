@@ -1,5 +1,6 @@
 package com.hereliesaz.mcpserved.desktop.discovery
 
+import com.hereliesaz.mcpserved.desktop.net.LanAddress
 import java.net.InetAddress
 import javax.jmdns.JmDNS
 import javax.jmdns.ServiceInfo
@@ -30,7 +31,7 @@ class DesktopAdvertiser {
         if (jmdns != null) return
         // Assign before registering so a registration failure still closes the
         // JmDNS instance rather than leaking its threads and sockets.
-        val md = runCatching { JmDNS.create(bindAddress()) }.getOrNull() ?: return
+        val md = runCatching { JmDNS.create(LanAddress.resolve()) }.getOrNull() ?: return
         jmdns = md
         runCatching {
             val host = runCatching { InetAddress.getLocalHost().hostName }.getOrNull() ?: "desktop"
@@ -57,13 +58,4 @@ class DesktopAdvertiser {
         }
         jmdns = null
     }
-
-    /** Bind on the real LAN interface, not loopback, so the record is reachable. */
-    private fun bindAddress(): InetAddress? = runCatching {
-        java.net.NetworkInterface.getNetworkInterfaces().toList()
-            .filter { it.isUp && !it.isLoopback && !it.isVirtual }
-            .flatMap { it.inetAddresses.toList() }
-            .firstOrNull { it.isSiteLocalAddress && it is java.net.Inet4Address }
-            ?: InetAddress.getLocalHost()
-    }.getOrNull()
 }

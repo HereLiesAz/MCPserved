@@ -104,6 +104,38 @@ class Pairing(ctx: Context) : KeyPairing {
         }
     }
 
+    /**
+     * The desktop's pairing QR — its public key, LAN address, and a one-time
+     * token, all in the single code the camera reads.
+     *
+     * Format: `mcpserved-pair:1:<b64url desktop pubkey>:<host>:<port>:<b64url token>`.
+     * The token authenticates [com.hereliesaz.mcpserved.transport.PairingPush]'s
+     * automatic reply — it never crosses the network until that push echoes it
+     * back as an HMAC, so only whatever scanned this exact QR can complete the
+     * exchange.
+     */
+    data class DesktopPairingRequest(
+        val desktopPublicKey: ByteArray,
+        val host: String,
+        val port: Int,
+        val token: ByteArray
+    ) {
+        companion object {
+            fun decode(s: String): DesktopPairingRequest? {
+                val parts = s.trim().split(":")
+                if (parts.size != 6 || parts[0] != "mcpserved-pair" || parts[1] != "1") return null
+                return runCatching {
+                    DesktopPairingRequest(
+                        desktopPublicKey = Base64.decode(parts[2], Base64.NO_WRAP or Base64.URL_SAFE),
+                        host = parts[3],
+                        port = parts[4].toInt(),
+                        token = Base64.decode(parts[5], Base64.NO_WRAP or Base64.URL_SAFE)
+                    )
+                }.getOrNull()
+            }
+        }
+    }
+
     /** True once a peer public key has been recorded. */
     val isPaired: Boolean get() = prefs.getString(KEY_PEER_PUB, null) != null
 

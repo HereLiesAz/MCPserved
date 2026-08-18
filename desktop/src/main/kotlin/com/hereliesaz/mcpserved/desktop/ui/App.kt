@@ -263,16 +263,29 @@ private fun PairScreen(controller: AppController) {
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
         Heading(
             "Pair",
-            "A one-time key exchange. Both public keys travel by QR in both directions, so nothing in " +
-                "the middle ever holds the secret.",
+            "A one-time key exchange. This machine's public key, address, and a one-time pairing " +
+                "token travel together in the QR below — scanning it on the phone is the whole thing.",
         )
 
+        if (controller.paired) {
+            Spacer(Modifier.height(16.dp))
+            Text("Paired with ${controller.pairedDeviceId}", style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "Arm the service on the phone — the desktop finds it on Wi-Fi automatically, or " +
+                    "bridges over adb.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(24.dp))
+            OutlinedButton(onClick = { controller.unpair() }) { Text("Unpair") }
+            return
+        }
+
         Text(
-            "1.  On the phone, open MCPserved → Pair → \"Scan the server's code\" and point it at the " +
-                "QR below — no typing needed.\n" +
-                "2.  The phone will then show its own code. Use its \"Send this code to your computer\" " +
-                "button to get that string here (typing a key this long by hand isn't realistic).\n" +
-                "3.  Paste it below and press Pair.",
+            "On the phone, open MCPserved → Desktop bridge → \"Scan the server's code\" and point it " +
+                "at the QR below. Pairing finishes the moment it scans — nothing to type, nothing to " +
+                "send back.",
             style = MaterialTheme.typography.bodyMedium,
         )
         Spacer(Modifier.height(16.dp))
@@ -282,42 +295,19 @@ private fun PairScreen(controller: AppController) {
             bitmap = remember(qr) { qrImage(qr.qr) },
             contentDescription = "this computer's pairing QR",
         )
-        Spacer(Modifier.height(12.dp))
-        SelectionContainer {
-            Text(qr.qr, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
-        }
-        Spacer(Modifier.height(24.dp))
-        HorizontalDivider()
         Spacer(Modifier.height(16.dp))
 
-        OutlinedTextField(
-            value = controller.pairInput,
-            onValueChange = { controller.pairInput = it },
-            label = { Text("Device pairing payload (mcpserved:2:…)") },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-        )
-        Spacer(Modifier.height(12.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Button(onClick = { controller.pair() }, enabled = !controller.busy) { Text("Pair") }
-            if (controller.paired) {
-                Spacer(Modifier.width(8.dp))
-                OutlinedButton(onClick = { controller.unpair() }) { Text("Unpair") }
+        when (val status = controller.pairStatus) {
+            is AppController.PairStatus.Listening -> Row(verticalAlignment = Alignment.CenterVertically) {
+                CircularProgressIndicator(modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(12.dp))
+                Text("Waiting for the phone to scan…", style = MaterialTheme.typography.bodyMedium)
             }
-        }
-        controller.pairError?.let {
-            Spacer(Modifier.height(8.dp))
-            Text("Pairing failed: $it", color = MaterialTheme.colorScheme.error)
-        }
-
-        if (controller.paired) {
-            Spacer(Modifier.height(16.dp))
-            Text(
-                "Paired with ${controller.pairedDeviceId}. Arm the service on the phone — the desktop " +
-                    "finds it on Wi-Fi automatically, or bridges over adb.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            is AppController.PairStatus.Failed -> Column {
+                Text("Pairing failed: ${status.message}", color = MaterialTheme.colorScheme.error)
+                Spacer(Modifier.height(12.dp))
+                OutlinedButton(onClick = { controller.regenerateDeviceQr() }) { Text("Generate a new code") }
+            }
         }
     }
 }
