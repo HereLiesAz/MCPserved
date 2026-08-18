@@ -70,6 +70,21 @@ class AppController(private val scope: CoroutineScope) {
     var pairError by mutableStateOf<String?>(null)
         private set
 
+    /**
+     * This machine's own pairing QR — generated the moment [AppController] is
+     * constructed, not gated behind [pairInput]/[pair]. [pendingIdentity] holds
+     * the matching keypair privately so [pair] finishes with the *same* key
+     * this QR already showed, rather than minting a fresh one the device's
+     * scan wouldn't match.
+     */
+    var deviceQr by mutableStateOf(PairingFlow.startPairing())
+        private set
+
+    /** Mints a fresh identity, invalidating whatever [deviceQr] showed before. */
+    fun regenerateDeviceQr() {
+        deviceQr = PairingFlow.startPairing()
+    }
+
     val hostOutcomes = mutableStateListOf<String>()
     val logLines = mutableStateListOf<String>()
 
@@ -189,9 +204,12 @@ class AppController(private val scope: CoroutineScope) {
     fun pair() {
         val input = pairInput.trim()
         if (input.isEmpty()) return
+        val identity = deviceQr
         scope.launch {
             onMain { busy = true; pairError = null }
-            val result = withContext(Dispatchers.IO) { runCatching { PairingFlow.pairFromPayload(input) } }
+            val result = withContext(Dispatchers.IO) {
+                runCatching { PairingFlow.completeWithPayload(input, identity.keyPair) }
+            }
             onMain {
                 busy = false
                 result.onSuccess {
@@ -212,6 +230,7 @@ class AppController(private val scope: CoroutineScope) {
         paired = false
         pairedDeviceId = null
         pairReply = null
+        regenerateDeviceQr()
         log("unpaired — device keys discarded")
     }
 
