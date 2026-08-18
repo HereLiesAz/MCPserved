@@ -250,6 +250,15 @@ function installClaudeCode(launch: Launch): boolean {
   // On Windows the global CLI is claude.cmd/.ps1; execFile resolves that name,
   // whereas a bare "claude" fails with ENOENT. Elsewhere the binary is on PATH.
   const binary = platform() === "win32" ? "claude.cmd" : "claude";
+  // `claude mcp add` refuses to replace an existing entry, so re-running this
+  // (e.g. after the relay URL changes) would otherwise fail with "already
+  // exists" instead of just updating it. Removing first — ignoring the error
+  // when there was nothing to remove — makes this call idempotent.
+  try {
+    execFileSync(binary, ["mcp", "remove", SERVER_NAME, ...scope], { stdio: "ignore" });
+  } catch {
+    // Nothing registered yet; that's fine.
+  }
   try {
     execFileSync(binary, cmd, { stdio: "ignore" });
     console.log("  Claude Code       ✓ added via `claude mcp add` (user scope)");
@@ -509,6 +518,13 @@ function forwardPort(port: number, serial?: string): Promise<void> {
 function connectClaudeCode(url: string, token: string): void {
   const cmd = ["mcp", "add", SERVER_NAME, "-s", "user", "--", "npx", ...shimArgs(url, token)];
   const binary = platform() === "win32" ? "claude.cmd" : "claude";
+  // Same idempotency fix as installClaudeCode: remove any prior entry first
+  // so re-running `connect` (e.g. with a rotated token) doesn't just fail.
+  try {
+    execFileSync(binary, ["mcp", "remove", SERVER_NAME, "-s", "user"], { stdio: "ignore" });
+  } catch {
+    // Nothing registered yet; that's fine.
+  }
   try {
     execFileSync(binary, cmd, { stdio: "ignore" });
     console.log("  Claude Code       ✓ added via `claude mcp add` (mcp-remote shim)");

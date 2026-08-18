@@ -107,7 +107,12 @@ class CloudflareRelayDeployer(private val appContext: Context) {
     private fun ensureSubdomain(token: String, accountId: String): String? {
         val getReq = authed("$API_BASE/accounts/$accountId/workers/subdomain", token).get().build()
         client.newCall(getReq).execute().use { resp ->
-            val existing = bodyOf(resp)?.get("result")?.jsonObject
+            // Cloudflare answers "result": null, not an empty object, for an
+            // account that has never registered a workers.dev subdomain —
+            // exactly the first-deploy case this falls through to handle
+            // below. `.jsonObject` throws on a JsonNull rather than treating
+            // it as absent, so this has to be a safe cast, not that extension.
+            val existing = (bodyOf(resp)?.get("result") as? JsonObject)
                 ?.get("subdomain")?.jsonPrimitive?.content
             if (!existing.isNullOrBlank()) return existing
         }

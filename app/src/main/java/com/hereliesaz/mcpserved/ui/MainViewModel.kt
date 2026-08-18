@@ -23,8 +23,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.filterIsInstance
-import kotlinx.coroutines.flow.launchIn
-import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -265,13 +263,6 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         com.hereliesaz.mcpserved.service.ControlService.instance?.stopTunnel()
     }
 
-    init {
-        tunnelState
-            .filterIsInstance<com.hereliesaz.mcpserved.service.ControlService.Companion.TunnelState.Running>()
-            .onEach { setRelayUrl(it.url) }
-            .launchIn(viewModelScope)
-    }
-
     /** Addresses this device could be reached at if [wildcardMcpBind] is set. */
     val localAddresses: List<String>
         get() = runCatching {
@@ -352,9 +343,17 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         _relayRoomToken.value = relayToken.rotate()
     }
 
-    /** The connect string an operator pastes into `mcpserved connect --relay`. */
-    fun relayConnectString(): String =
-        "MCPSERVED_MODE=relay MCPSERVED_RELAY_URL=${_relayUrl.value} " +
+    /**
+     * The connect string an operator pastes into an AI host's terminal.
+     *
+     * Takes [url] explicitly rather than reading [relayUrl] itself: a
+     * session-scoped Quick Tunnel's address and the stable, persisted
+     * "deploy your own relay" address are two different things a caller
+     * chooses between, never something this function should guess at or
+     * silently prefer one of.
+     */
+    fun relayConnectString(url: String): String =
+        "MCPSERVED_MODE=relay MCPSERVED_RELAY_URL=$url " +
             "MCPSERVED_RELAY_ROOM=${_relayRoomToken.value} mcpserved install claude-code"
 
     /** True when the accessibility service is bound. Nothing works without it. */
