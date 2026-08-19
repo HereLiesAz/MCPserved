@@ -13,18 +13,26 @@ import com.hereliesaz.mcpserved.grant.ConsentStore
 import com.hereliesaz.mcpserved.grant.Grant
 import com.hereliesaz.mcpserved.grant.GrantStore
 import com.hereliesaz.mcpserved.grant.RemoteAccessStore
+import com.hereliesaz.mcpserved.macro.Macro
+import com.hereliesaz.mcpserved.macro.MacroStore
 import com.hereliesaz.mcpserved.service.ControlService
 import com.hereliesaz.mcpserved.service.McpAccessibilityService
 import com.hereliesaz.mcpserved.transport.DesktopDiscovery
 import com.hereliesaz.mcpserved.transport.McpServer
 import com.hereliesaz.mcpserved.transport.PairingPush
+import com.hereliesaz.mcpserved.transport.Request
 import com.hereliesaz.mcpserved.transport.Scope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.filterIsInstance
+import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.util.UUID
 
 private const val KEY_PREFERRED_HOST = "preferred_host"
 
@@ -387,6 +395,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     init {
         refreshApps()
+        refreshMacros()
         viewModelScope.launch {
             _hasConsented.value = withContext(Dispatchers.IO) { consent.isAccepted }
         }
@@ -447,6 +456,142 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun revokeAll() = viewModelScope.launch {
         store.revokeAll()
         refreshApps()
+    }
+
+    // ---- macros: user-recorded, AI-runnable action sequences ---------------
+
+    private val macroStore = MacroStore(app)
+
+    private val _macros = MutableStateFlow<List<Macro>>(emptyList())
+    val macros: StateFlow<List<Macro>> = _macros
+
+    /** What the current package must be, and how far a running recording has gotten. */
+    sealed class RecordingState {
+        data object Idle : RecordingState()
+        data class Recording(val pkg: String, val steps: Int) : RecordingState()
+    }
+
+    private val _recordingState = MutableStateFlow<RecordingState>(RecordingState.Idle)
+    val recordingState: StateFlow<RecordingState> = _recordingState
+
+    private var recordingStepsJob: Job? = null
+
+    private val _macroRunResult = MutableStateFlow<String?>(null)
+    val macroRunResult: StateFlow<String?> = _macroRunResult
+
+    fun refreshMacros() = viewModelScope.launch {
+        _macros.value = withContext(Dispatchers.IO) { macroStore.current() }
+    }
+
+    /**
+     * Starts recording against [pkg] — the package currently in the
+     * foreground, since a macro's node ids and coordinates only ever mean
+     * anything for the one app they were captured against (see
+     * [com.hereliesaz.mcpserved.service.Dispatcher.macroRun]).
+     *
+     * @return false when the accessibility service isn't connected, or a
+     *   recording is already running
+     */
+    fun startRecording(pkg: String): Boolean {
+        val svc = McpAccessibilityService.instance ?: return false
+        if (!svc.startRecording(pkg)) return false
+        _recordingState.value = RecordingState.Recording(pkg, 0)
+        recordingStepsJob = svc.recordingSteps
+            ?.onEach { steps -> _recordingState.value = RecordingState.Recording(pkg, steps.size) }
+            ?.launchIn(viewModelScope)
+        return true
+    }
+
+    /** Discards whatever has been captured so far without saving it. */
+    fun cancelRecording() {
+        McpAccessibilityService.instance?.stopRecording()
+        recordingStepsJob?.cancel()
+        recordingStepsJob = null
+        _recordingState.value = RecordingState.Idle
+    }
+
+    /**
+     * Stops recording and saves it as [name]. A blank name or an empty
+     * capture (nothing the accessibility event stream could translate into
+     * a step — see [com.hereliesaz.mcpserved.macro.MacroRecorder]) discards
+     * the recording instead of saving a macro that would do nothing.
+     *
+     * @return false when there was nothing to save
+     */
+    fun stopRecording(name: String): Boolean {
+        val svc = McpAccessibilityService.instance
+        val pkg = (_recordingState.value as? RecordingState.Recording)?.pkg
+        val steps = svc?.stopRecording()
+        recordingStepsJob?.cancel()
+        recordingStepsJob = null
+        _recordingState.value = RecordingState.Idle
+
+        if (pkg == null || steps.isNullOrEmpty() || name.isBlank()) return false
+        viewModelScope.launch {
+            macroStore.put(
+                Macro(
+                    id = UUID.randomUUID().toString(),
+                    name = name.trim(),
+                    pkg = pkg,
+                    steps = steps,
+                    createdAtEpochMs = System.currentTimeMillis()
+                )
+            )
+            refreshMacros()
+        }
+        return true
+    }
+
+    fun deleteMacro(name: String) = viewModelScope.launch {
+        macroStore.delete(name)
+        refreshMacros()
+    }
+
+    /**
+     * Runs a saved macro locally, through the same session-gated
+     * [com.hereliesaz.mcpserved.service.Dispatcher] instance an AI-driven
+     * action uses — a short session opens for the call and closes right
+     * after, mirroring what a remote caller would do around one action.
+     * This is also exactly how an AI host runs a macro remotely: it just
+     * skips the local button and calls `macro_run` directly, since the
+     * dispatcher makes no distinction between the two callers.
+     *
+     * Brings the macro's app forward first when it isn't already there —
+     * [com.hereliesaz.mcpserved.service.Dispatcher.macroRun] refuses to run
+     * against the wrong foreground app — and waits out the activity
+     * transition rather than racing it.
+     */
+    fun runMacro(name: String) = viewModelScope.launch {
+        _macroRunResult.value = null
+        val service = ControlService.instance
+        if (service == null) {
+            _macroRunResult.value = "the control service isn't running — arm it first"
+            return@launch
+        }
+        val macro = macroStore.find(name)
+        if (macro == null) {
+            _macroRunResult.value = "no macro named '$name'"
+            return@launch
+        }
+        if (McpAccessibilityService.instance?.foreground?.pkg != macro.pkg) {
+            val ctx = getApplication<Application>()
+            val intent = ctx.packageManager.getLaunchIntentForPackage(macro.pkg)
+            if (intent == null) {
+                _macroRunResult.value = "can't launch ${macro.pkg} — is it still installed?"
+                return@launch
+            }
+            ctx.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            delay(700)
+        }
+        val wasActive = service.session.isActive
+        if (!wasActive) service.beginSession(60)
+        val resp = service.dispatcher.handle(Request.MacroRun(name))
+        if (!wasActive) service.endSession()
+        _macroRunResult.value = if (resp.ok) "ran '$name'" else "error: ${resp.error}"
+    }
+
+    fun clearMacroRunResult() {
+        _macroRunResult.value = null
     }
 
     /**

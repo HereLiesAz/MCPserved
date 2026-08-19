@@ -369,6 +369,32 @@ const ALWAYS: ToolDef[] = [
     handler: async (args, link) =>
       ack(await link.send({ op: "clipboard_set", text: args.text }), "clipboard set"),
   },
+  {
+    name: "macro_list",
+    description:
+      "List saved macros — named, recorded sequences of taps, holds, and " +
+      "finished text entry the user captured against one app. Each entry names " +
+      "the app it runs against and how many steps it has.",
+    inputSchema: obj({}),
+    handler: async (_args, link) => {
+      const r = await link.send({ op: "macro_list" });
+      if (!r.ok) return `error: ${r.error}`;
+      const macros: Array<{ name: string; pkg: string; steps: number }> = r.macros ?? [];
+      if (macros.length === 0) return "no macros recorded";
+      return macros.map((m) => `${m.name} (${m.pkg}, ${m.steps} steps)`).join("\n");
+    },
+  },
+  {
+    name: "macro_run",
+    description:
+      "Run a saved macro by name, replaying its recorded taps/holds/typed text " +
+      "through the same grant-checked path as any other action. Fails if the app " +
+      "currently in the foreground isn't the one the macro was recorded against — " +
+      "call launch first if needed.",
+    inputSchema: obj({ name: { type: "string" } }, ["name"]),
+    handler: async (args, link) =>
+      ack(await link.send({ op: "macro_run", name: args.name }), "macro ran"),
+  },
 ];
 
 /**

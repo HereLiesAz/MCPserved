@@ -23,6 +23,7 @@ import com.hereliesaz.mcpserved.crypto.Pairing
 import com.hereliesaz.mcpserved.crypto.RelayToken
 import com.hereliesaz.mcpserved.grant.Enforcer
 import com.hereliesaz.mcpserved.grant.GrantStore
+import com.hereliesaz.mcpserved.macro.MacroStore
 import com.hereliesaz.mcpserved.grant.RemoteAccessStore
 import com.hereliesaz.mcpserved.grant.SessionLog
 import com.hereliesaz.mcpserved.transport.CloudflareTunnel
@@ -117,6 +118,8 @@ class ControlService : Service() {
         private set
     lateinit var grants: GrantStore
         private set
+    lateinit var macros: MacroStore
+        private set
     lateinit var log: SessionLog
         private set
     lateinit var enforcer: Enforcer
@@ -130,6 +133,8 @@ class ControlService : Service() {
     lateinit var localWsServer: LocalWsServer
         private set
     lateinit var mcpServer: McpServer
+        private set
+    lateinit var dispatcher: Dispatcher
         private set
     lateinit var advertiser: LanAdvertiser
         private set
@@ -156,6 +161,7 @@ class ControlService : Service() {
 
         resolver = Resolver(backends)
         grants = GrantStore(applicationContext)
+        macros = MacroStore(applicationContext)
         log = SessionLog()
         enforcer = Enforcer(resolver, grants, log)
         session = Session()
@@ -166,7 +172,7 @@ class ControlService : Service() {
         // loopback ([LocalServer]), the device's own MCP-over-HTTP endpoint
         // ([McpServer]), and, opt-in, a relay dial-out ([RemoteRelayClient]).
         // All are just transports into the same enforcement.
-        val dispatcher = Dispatcher(applicationContext, this)
+        dispatcher = Dispatcher(applicationContext, this)
         server = LocalServer(pairing, dispatcher, scope)
         localWsServer = LocalWsServer(pairing, dispatcher, scope)
         advertiser = LanAdvertiser(applicationContext, pairing.deviceId)

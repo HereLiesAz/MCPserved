@@ -323,6 +323,36 @@ private val ALWAYS: List<ToolDef> = listOf(
             ack(link.send(reqWithArgs("clipboard_set", args, listOf("text"))), "clipboard set")
         },
     ),
+    ToolDef(
+        name = "macro_list",
+        description = "List saved macros — named, recorded sequences of taps, holds, and " +
+            "finished text entry the user captured against one app. Each entry names " +
+            "the app it runs against and how many steps it has.",
+        inputSchema = schema("""{"type":"object","properties":{},"required":[],"additionalProperties":false}"""),
+        handler = { _, link ->
+            val r = link.send(req("macro_list"))
+            if (!r.isOk()) {
+                "error: ${r.errorText()}"
+            } else {
+                val macros = (r["macros"] as? JsonArray)?.map { it.jsonObject } ?: emptyList()
+                if (macros.isEmpty()) "no macros recorded"
+                else macros.joinToString("\n") { "${it.str("name")} (${it.str("pkg")}, ${it.str("steps")} steps)" }
+            }
+        },
+    ),
+    ToolDef(
+        name = "macro_run",
+        description = "Run a saved macro by name, replaying its recorded taps/holds/typed text " +
+            "through the same grant-checked path as any other action. Fails if the app " +
+            "currently in the foreground isn't the one the macro was recorded against — " +
+            "call launch first if needed.",
+        inputSchema = schema(
+            """{"type":"object","properties":{"name":{"type":"string"}},"required":["name"],"additionalProperties":false}""",
+        ),
+        handler = { args, link ->
+            ack(link.send(reqWithArgs("macro_run", args, listOf("name"))), "macro ran")
+        },
+    ),
 )
 
 /**

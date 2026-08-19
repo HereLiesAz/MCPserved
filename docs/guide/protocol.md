@@ -95,6 +95,8 @@ The full set:
 | `clipboard_get` | — | |
 | `clipboard_set` | `text` string | |
 | `shell` | `cmd` string | |
+| `macro_list` | — | |
+| `macro_run` | `name` string | Fails if the recorded package isn't in the foreground. |
 
 ### Session gate
 
@@ -125,6 +127,7 @@ Response variants:
 | `grants` | `grants: List<GrantEntry>` |
 | `notifications` | `items: List<NotificationEntry>` |
 | `text` | `text: string` — used for `clipboard_get` and `shell` |
+| `macros` | `macros: List<MacroEntry>` |
 
 A malformed or undispatchable request yields `Err`; a dispatch exception is caught
 and returned as `Err(message)`.
@@ -170,6 +173,29 @@ revoked).
 
 `pkg: string`, `key: string`, `title: string?`, `text: string?`,
 `postedAtEpochMs: long`.
+
+### `MacroEntry`
+
+`name: string`, `pkg: string`, `steps: int`. One saved macro, as listed rather
+than run — no step detail, just enough for a caller to choose one and know
+which app to bring forward first.
+
+## Macros
+
+A macro is a named, stored sequence of `Request`s — `tap`, `long_press`,
+`swipe`, `scroll`, `type`, or `key` — recorded against one package and
+replayed by `macro_run`. Recording happens on-device only (there is no wire
+request for it): the accessibility service watches its event stream while a
+recording is active and translates clicks, long clicks, and finished text
+entry into steps; swipes, scrolls, and global keys cannot be captured this
+way and never appear in a live recording, though the stored shape does not
+forbid them from some other source.
+
+`macro_run` replays each step through the same dispatcher path — and the
+same per-step grant enforcement — a directly-issued action would use, after
+first checking that the macro's recorded package is the one currently in the
+foreground. It stops at the first failing step or foreground change rather
+than pressing on. See `macro/` in the Android app for the implementation.
 
 ## Enums
 
