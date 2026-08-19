@@ -174,6 +174,12 @@ class McpBridge(
         "launch" -> ack(resp, "launched ${(args["pkg"] as? JsonPrimitive)?.contentOrNull ?: ""}")
         "clipboard_set" -> ack(resp, "clipboard set")
 
+        "macro_list" -> (resp as? Response.Macros)?.let { m ->
+            if (m.macros.isEmpty()) "no macros recorded"
+            else m.macros.joinToString("\n") { "${it.name} (${it.pkg}, ${it.steps} steps)" }
+        } ?: errText(resp)
+        "macro_run" -> ack(resp, "macro ran")
+
         else -> errText(resp)
     }
 
@@ -414,6 +420,21 @@ class McpBridge(
                 "clipboard_set",
                 "Write the clipboard.",
                 objSchema(listOf("text")) { strProp("text") },
+            ),
+            tool(
+                "macro_list",
+                "List saved macros — named, recorded sequences of taps, holds, and " +
+                    "finished text entry the user captured against one app. Each entry " +
+                    "names the app it runs against and how many steps it has.",
+                objSchema(),
+            ),
+            tool(
+                "macro_run",
+                "Run a saved macro by name, replaying its recorded taps/holds/typed " +
+                    "text through the same grant-checked path as any other action. " +
+                    "Fails if the app currently in the foreground isn't the one the " +
+                    "macro was recorded against — call launch first if needed.",
+                objSchema(listOf("name")) { strProp("name") },
             ),
         )
     }

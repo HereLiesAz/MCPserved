@@ -7,6 +7,7 @@ import androidx.activity.viewModels
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.FiberManualRecord
 import androidx.compose.material.icons.outlined.List
 import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.PlayArrow
@@ -66,6 +67,7 @@ private enum class Dest(val label: String, val icon: ImageVector) {
     STATUS("Status", Icons.Outlined.PlayArrow),
     CONNECT("Connect", Icons.Outlined.Lock),
     GRANTS("Grants", Icons.Outlined.Settings),
+    MACROS("Macros", Icons.Outlined.FiberManualRecord),
     LOG("Log", Icons.Outlined.List)
 }
 
@@ -95,6 +97,7 @@ private fun Root(vm: MainViewModel) {
                 Dest.STATUS -> StatusScreen(vm)
                 Dest.CONNECT -> ConnectScreen(vm)
                 Dest.GRANTS -> GrantsScreen(vm)
+                Dest.MACROS -> MacrosScreen(vm)
                 Dest.LOG -> SessionLogScreen()
             }
         }

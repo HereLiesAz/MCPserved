@@ -167,6 +167,12 @@ sealed interface Request {
 
     @Serializable @SerialName("shell")
     data class Shell(val cmd: String) : Request
+
+    @Serializable @SerialName("macro_list")
+    data object MacroList : Request
+
+    @Serializable @SerialName("macro_run")
+    data class MacroRun(val name: String) : Request
 }
 
 @Serializable
@@ -266,6 +272,14 @@ sealed interface Response {
         override val error: String? = null,
         override val foregroundChanged: Boolean = false
     ) : Response
+
+    @Serializable @SerialName("macros")
+    data class Macros(
+        val macros: List<MacroEntry>,
+        override val ok: Boolean = true,
+        override val error: String? = null,
+        override val foregroundChanged: Boolean = false
+    ) : Response
 }
 
 @Serializable
@@ -278,3 +292,7 @@ data class GrantEntry(val pkg: String, val scopes: Set<Scope>, val expiresAtEpoc
 data class NotificationEntry(
     val pkg: String, val key: String, val title: String?, val text: String?, val postedAtEpochMs: Long
 )
+
+/** One recorded macro, as listed rather than run — no step detail, just enough to choose one. */
+@Serializable
+data class MacroEntry(val name: String, val pkg: String, val steps: Int)

@@ -69,6 +69,19 @@ Coordinates computed from an older tree will miss after any scroll.
 | `clipboard_get` | Read the clipboard. | none | Requires `OBSERVE`. Needs root or Shizuku — Android forbids background clipboard reads. **Unavailable over adb.** |
 | `clipboard_set` | Write the clipboard. | `text` string (required) | Requires `TYPE`. App tries the native `ClipboardManager` first, falls back to shell. **Unavailable over adb.** |
 
+## Macro tools
+
+| Tool | Purpose | Inputs | Notes |
+| --- | --- | --- | --- |
+| `macro_list` | List saved macros. | none | Each entry gives the recording's name, package, and step count. **Unavailable over adb** — macros are recorded and stored on the device. |
+| `macro_run` | Replay a saved macro's taps, holds, and typed text. | `name` string (required) | Runs every step through the same grant-checked path as a directly-issued action, so it can't exceed the recorded package's grant. Fails if that package isn't the current foreground app. **Unavailable over adb.** |
+
+Macros are recorded on the device itself, from the app's Macros tab — there is
+no tool for starting a recording. Recording watches the accessibility event
+stream for the app being recorded and turns clicks, long clicks, and finished
+text entry into steps; swipes, scrolls, and global keys cannot be captured
+this way. See [protocol](protocol.md#macros).
+
 ## Privileged tool
 
 | Tool | Purpose | Inputs | Notes |

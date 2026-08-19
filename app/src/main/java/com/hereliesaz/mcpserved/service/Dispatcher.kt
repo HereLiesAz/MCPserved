@@ -7,8 +7,10 @@ import android.util.Base64
 import com.hereliesaz.mcpserved.backend.Resolver
 import com.hereliesaz.mcpserved.grant.Enforcer
 import com.hereliesaz.mcpserved.grant.GrantStore
+import com.hereliesaz.mcpserved.macro.MacroStore
 import com.hereliesaz.mcpserved.transport.AppEntry
 import com.hereliesaz.mcpserved.transport.GrantEntry
+import com.hereliesaz.mcpserved.transport.MacroEntry
 import com.hereliesaz.mcpserved.transport.Request
 import com.hereliesaz.mcpserved.transport.RequestHandler
 import com.hereliesaz.mcpserved.transport.Response
@@ -46,6 +48,7 @@ class Dispatcher(
 
     private val resolver: Resolver get() = service.resolver
     private val grants: GrantStore get() = service.grants
+    private val macros: MacroStore get() = service.macros
     private val enforcer: Enforcer get() = service.enforcer
     private val session: Session get() = service.session
 
@@ -61,13 +64,24 @@ class Dispatcher(
      */
     private val mutex = Mutex()
 
-    override suspend fun handle(req: Request): Response = mutex.withLock {
+    override suspend fun handle(req: Request): Response = mutex.withLock { dispatchInner(req) }
+
+    /**
+     * The actual per-op dispatch, without acquiring [mutex].
+     *
+     * Split out so [macroRun] can replay a macro's steps one at a time while
+     * still holding the single outer lock [handle] took for the whole
+     * `macro_run` call — [mutex] is not reentrant, so a macro step calling
+     * back into [handle] would deadlock. Every other caller goes through
+     * [handle]; nothing outside this file calls this directly.
+     */
+    private suspend fun dispatchInner(req: Request): Response {
         // Session gate. Fails closed for everything that touches the device.
         if (req !is Request.Capabilities && req !is Request.SessionBegin && !session.isActive) {
-            return@withLock Response.Err("no active session")
+            return Response.Err("no active session")
         }
 
-        when (req) {
+        return when (req) {
             is Request.Capabilities -> capabilities()
             is Request.SessionBegin -> sessionBegin(req)
             is Request.SessionEnd -> sessionEnd()
@@ -86,6 +100,8 @@ class Dispatcher(
             is Request.ClipboardGet -> clipboardGet()
             is Request.ClipboardSet -> clipboardSet(req)
             is Request.Shell -> shell(req)
+            is Request.MacroList -> macroList()
+            is Request.MacroRun -> macroRun(req)
         }
     }
 
@@ -335,6 +351,60 @@ class Dispatcher(
         val text = out.result.getOrElse { return errFor(it, out.foregroundChanged) }
         onSuccess()
         return Response.Text(text, foregroundChanged = out.foregroundChanged)
+    }
+
+    // ---- macros ---------------------------------------------------------------
+
+    private suspend fun macroList(): Response = Response.Macros(
+        macros.current().map { MacroEntry(it.name, it.pkg, it.steps.size) }
+    )
+
+    /**
+     * Replays a recorded macro, one step at a time, through [dispatchInner] —
+     * the same path a live AI-issued action takes. Every step still passes
+     * through its own [Enforcer.guard] individually, so a macro can never
+     * exceed its package's current grant; the check here is a separate,
+     * package-*correctness* one, not an authorization one: a macro's node
+     * ids and coordinates only mean anything for the app they were recorded
+     * against, so running one against a different foreground app would tap
+     * whatever happens to be there rather than fail loudly.
+     *
+     * Stops at the first failing step rather than pressing on — a macro that
+     * mis-taps partway through is a macro that should not then also
+     * mis-type into whatever that mis-tap landed on.
+     */
+    private suspend fun macroRun(req: Request.MacroRun): Response {
+        val macro = macros.find(req.name)
+            ?: return Response.Err("no macro named '${req.name}'")
+
+        val fg = resolver.foregroundPackage().getOrElse {
+            return Response.Err("foreground unreadable: ${it.message}")
+        }
+        if (fg != macro.pkg) {
+            return Response.Err(
+                "macro '${req.name}' was recorded against ${macro.pkg}, but ${fg} is in the " +
+                    "foreground — bring it forward first"
+            )
+        }
+
+        macro.steps.forEachIndexed { i, step ->
+            val res = dispatchInner(step)
+            if (!res.ok) {
+                return Response.Err(
+                    "macro '${req.name}' failed at step ${i + 1}/${macro.steps.size}: ${res.error}",
+                    res.foregroundChanged
+                )
+            }
+            if (res.foregroundChanged) {
+                return Response.Err(
+                    "macro '${req.name}' stopped at step ${i + 1}/${macro.steps.size}: the " +
+                        "foreground app changed",
+                    foregroundChanged = true
+                )
+            }
+        }
+        onSuccess()
+        return Response.Ack()
     }
 
     // ---- shared -------------------------------------------------------------
