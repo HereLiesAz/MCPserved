@@ -126,6 +126,24 @@ android {
         buildConfigField("String", "GH_TOKEN", "\"$crashReportToken\"")
     }
 
+    // Two distribution channels, one codebase. `playstore` never declares
+    // McpAccessibilityService (see src/playstore/AndroidManifest.xml) and controls
+    // the device only through Shizuku/root shell — Accessibility's restricted-use
+    // policy makes an app whose actual purpose is AI-driven automation a poor fit
+    // for Play review. `github` is today's build unchanged: Accessibility primary,
+    // Shizuku/root as bonus backends, sideloaded from GitHub Releases where that
+    // policy has no bearing. Same applicationId — a device runs one or the other,
+    // never both installed side by side.
+    flavorDimensions += "distribution"
+    productFlavors {
+        create("playstore") {
+            dimension = "distribution"
+        }
+        create("github") {
+            dimension = "distribution"
+        }
+    }
+
     // Release signing is a property of the project, not of each CI invocation. The keystore and
     // credentials come from the environment: CI decodes the base64 `KEYSTORE_RAW` secret to
     // app/keystore.jks and exports KEYSTORE_PASSWORD / KEY_ALIAS / KEY_PASSWORD (see the

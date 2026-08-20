@@ -27,6 +27,21 @@ interface ControlBackend {
 
     suspend fun tree(maxDepth: Int): Result<Pruner.Result>
 
+    /**
+     * Resolves a [com.hereliesaz.mcpserved.tree.NodeId] to its current
+     * screen-center point.
+     *
+     * Node-id addressing was, until now, wired straight from
+     * [com.hereliesaz.mcpserved.service.Dispatcher] into
+     * [com.hereliesaz.mcpserved.service.McpAccessibilityService.findById] —
+     * a live re-walk of the accessibility tree, needing no cache. A backend
+     * with no live tree (see [com.hereliesaz.mcpserved.backend.UiAutomatorTree])
+     * resolves against whatever its most recent [tree] call cached instead.
+     * [com.hereliesaz.mcpserved.backend.Resolver.resolveNode] is now the one
+     * place that decides which.
+     */
+    suspend fun resolveNode(nodeId: String): Result<Pair<Int, Int>>
+
     suspend fun foregroundPackage(): Result<String>
 
     suspend fun foregroundActivity(): Result<String?>

@@ -63,6 +63,14 @@ class Resolver(private val backends: List<ControlBackend>) {
         chain(Cap.TREE) { it.tree(maxDepth) }
 
     /**
+     * Resolves a node id to a screen point — accessibility's live re-walk when
+     * it's present, else whichever privileged backend's [UiAutomatorTree]
+     * cached it from the most recent [tree] call.
+     */
+    suspend fun resolveNode(nodeId: String): Result<Pair<Int, Int>> =
+        chain(Cap.TREE) { it.resolveNode(nodeId) }
+
+    /**
      * Current foreground package.
      *
      * Accessibility is authoritative here — its value comes from a window state

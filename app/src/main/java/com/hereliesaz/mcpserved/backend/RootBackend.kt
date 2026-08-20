@@ -20,9 +20,12 @@ import java.io.ByteArrayOutputStream
  * `su` invocations trigger the superuser prompt on some managers, and a session
  * that asks fifty times is a session the user denies once and abandons.
  *
- * This backend deliberately does not implement [tree]. `uiautomator dump` writes
- * XML to disk, takes upward of a second, and yields strictly less than the
- * accessibility node tree already provides.
+ * [tree] goes through [UiAutomatorTree] — slower and strictly worse than a live
+ * accessibility walk (`uiautomator dump` writes XML to disk and costs upward of
+ * a second), which is why [Resolver] only ever prefers this over accessibility
+ * when accessibility isn't there at all. That's now a real case: a build with
+ * no `McpAccessibilityService` declared (see `src/playstore/AndroidManifest.xml`)
+ * has nothing else to fall back to, so slower-and-lesser beats absent.
  *
  * @param overrideAvailable when non-null, bypasses probing. Exposed for the
  *   manual toggle in settings, because root detection is a question the device
@@ -31,6 +34,8 @@ import java.io.ByteArrayOutputStream
 class RootBackend(overrideAvailable: Boolean? = null) : ControlBackend {
 
     override val name = "root"
+
+    private val uiTree = UiAutomatorTree(::su)
 
     @Volatile
     private var available: Boolean = overrideAvailable ?: false
@@ -49,6 +54,7 @@ class RootBackend(overrideAvailable: Boolean? = null) : ControlBackend {
     override val caps: Set<Cap>
         get() = if (!available) emptySet() else setOf(
             Cap.SHELL_ROOT,
+            Cap.TREE,
             Cap.CAPTURE_SILENT,
             Cap.GESTURE,
             Cap.TEXT_INPUT,
@@ -95,8 +101,9 @@ class RootBackend(overrideAvailable: Boolean? = null) : ControlBackend {
         }
     }
 
-    override suspend fun tree(maxDepth: Int): Result<Pruner.Result> =
-        ControlBackend.unsupported("tree", name)
+    override suspend fun tree(maxDepth: Int): Result<Pruner.Result> = uiTree.tree(maxDepth)
+
+    override suspend fun resolveNode(nodeId: String): Result<Pair<Int, Int>> = uiTree.resolve(nodeId)
 
     /**
      * Reads the resumed activity from `dumpsys activity activities`.
@@ -127,8 +134,19 @@ class RootBackend(overrideAvailable: Boolean? = null) : ControlBackend {
     override suspend fun swipe(x1: Int, y1: Int, x2: Int, y2: Int, ms: Int): Result<Unit> =
         su("input swipe $x1 $y1 $x2 $y2 $ms").map { }
 
-    override suspend fun scroll(nodeId: String, dir: ScrollDir): Result<Unit> =
-        ControlBackend.unsupported("scroll", name)
+    /** Swipe-across-bounds fallback, same geometry as [ShizukuBackend.scroll]. */
+    override suspend fun scroll(nodeId: String, dir: ScrollDir): Result<Unit> {
+        val r = uiTree.boundsOf(nodeId)
+            ?: return Result.failure(IllegalStateException("node $nodeId not found — call ui_tree first"))
+        val dx = r.width / 3
+        val dy = r.height / 3
+        return when (dir) {
+            ScrollDir.DOWN -> swipe(r.centerX, r.centerY + dy, r.centerX, r.centerY - dy, 300)
+            ScrollDir.UP -> swipe(r.centerX, r.centerY - dy, r.centerX, r.centerY + dy, 300)
+            ScrollDir.LEFT -> swipe(r.centerX + dx, r.centerY, r.centerX - dx, r.centerY, 300)
+            ScrollDir.RIGHT -> swipe(r.centerX - dx, r.centerY, r.centerX + dx, r.centerY, 300)
+        }
+    }
 
     /**
      * Types [text] into the focused field.

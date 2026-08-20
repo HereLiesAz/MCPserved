@@ -43,6 +43,14 @@ class A11yBackend : ControlBackend {
         return Result.success(Pruner(maxDepth).flatten(root))
     }
 
+    override suspend fun resolveNode(nodeId: String): Result<Pair<Int, Int>> {
+        val s = svc ?: return err("accessibility service not connected")
+        val node = s.findById(nodeId) ?: return err("node $nodeId not found")
+        val r = Rect().also { node.getBoundsInScreen(it) }
+        if (r.width() <= 0 || r.height() <= 0) return err("node $nodeId has no on-screen bounds")
+        return Result.success(r.centerX() to r.centerY())
+    }
+
     override suspend fun foregroundPackage(): Result<String> {
         val s = svc ?: return err("accessibility service not connected")
         return Result.success(s.foreground.pkg)
