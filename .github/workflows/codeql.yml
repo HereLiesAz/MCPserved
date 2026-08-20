@@ -48,7 +48,7 @@ jobs:
         uses: gradle/gradle-build-action@v3.1.0
         with:
           gradle-version: current
-          arguments: clean assembleDebug --no-build-cache
+          arguments: clean assembleGithubDebug --no-build-cache
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v3
