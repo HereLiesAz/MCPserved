@@ -21,14 +21,24 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
+import com.hereliesaz.mcpserved.BuildConfig
 
 /**
- * One button. Its label and action track exactly where the user is:
+ * One button. Its label and action track exactly where the user is.
  *
- * 1. Accessibility off → **"Enable & connect"** opens the one system settings
- *    screen Android requires for this — no app can flip that switch for
- *    itself, by OS design, so this is the one tap this screen cannot remove.
- * 2. The moment the user returns with it on, [MainViewModel.refreshStatus]
+ * The readiness signal itself is the one thing that differs by flavor:
+ * `github` reads [MainViewModel.a11yConnected] (whether AccessibilityService
+ * is bound — the classic path); `playstore`, which never declares that
+ * service at all, reads [MainViewModel.shizukuReady] instead. Everything
+ * downstream of "is the backend ready" — arming, disarming, the connected
+ * state — is identical either way, since both flavors share the exact same
+ * [com.hereliesaz.mcpserved.service.ControlService].
+ *
+ * 1. Backend not ready → **"Enable & connect"** / **"Connect Shizuku"** opens
+ *    whatever system flow that flavor needs — accessibility settings (a
+ *    switch no app can flip for itself), or Shizuku's own install/pair/
+ *    permission chain (see [MainViewModel.connectShizuku]).
+ * 2. The moment the user returns with it ready, [MainViewModel.refreshStatus]
  *    (fired from `ON_RESUME` below) arms the service automatically. No second
  *    tap, no separate "Arm" step to remember.
  * 3. Connected → the button becomes a plain confirmation, with "Disarm" as a
@@ -41,6 +51,7 @@ import androidx.lifecycle.compose.LifecycleEventEffect
 fun StatusScreen(vm: MainViewModel) {
     val tick by vm.statusTick.collectAsState()
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { vm.refreshStatus() }
+    val isPlaystore = BuildConfig.FLAVOR == "playstore"
 
     Column(
         Modifier
@@ -51,14 +62,14 @@ fun StatusScreen(vm: MainViewModel) {
         Text("MCPserved", style = MaterialTheme.typography.displaySmall)
         Spacer(Modifier.height(4.dp))
 
-        // Keyed on `tick`: a11yConnected/serviceRunning are plain getters over
-        // static instances, not observable state, so this is what forces a
-        // fresh read of them — and thus a redraw of the right button — the
-        // moment refreshStatus() fires on ON_RESUME.
+        // Keyed on `tick`: a11yConnected/shizukuReady/serviceRunning are plain
+        // getters over static instances, not observable state, so this is what
+        // forces a fresh read of them — and thus a redraw of the right button —
+        // the moment refreshStatus() fires on ON_RESUME.
         key(tick) {
-            val a11yReady = vm.a11yConnected
+            val backendReady = if (isPlaystore) vm.shizukuReady else vm.a11yConnected
             val armed = vm.serviceRunning
-            val connected = a11yReady && armed
+            val connected = backendReady && armed
 
             Text(
                 if (connected) "Connected. Nothing can touch an app you haven't granted."
@@ -71,10 +82,28 @@ fun StatusScreen(vm: MainViewModel) {
             Spacer(Modifier.height(40.dp))
 
             when {
-                !a11yReady -> Button(
-                    onClick = vm::openAccessibilitySettings,
-                    modifier = Modifier.fillMaxWidth()
-                ) { Text("Enable & connect") }
+                !backendReady -> Column {
+                    Button(
+                        onClick = if (isPlaystore) vm::connectShizuku else vm::openAccessibilitySettings,
+                        modifier = Modifier.fillMaxWidth()
+                    ) { Text(if (isPlaystore) shizukuButtonLabel(vm) else "Enable & connect") }
+                    if (isPlaystore && !vm.shizukuReady) {
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            when {
+                                !vm.shizukuInstalled ->
+                                    "Opens Shizuku's Play Store listing. Install it, then come back " +
+                                        "and tap this button again to pair."
+                                else ->
+                                    "Opens Developer options → Wireless debugging. Tap \"Pair device " +
+                                        "with pairing code\", enter it in Shizuku, then come back here " +
+                                        "— the permission prompt appears automatically."
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
 
                 !armed -> Button(
                     onClick = vm::startService,
@@ -99,4 +128,10 @@ fun StatusScreen(vm: MainViewModel) {
             Text("Also enable notification access (optional)")
         }
     }
+}
+
+/** Which rung of Shizuku setup the button's label should name. */
+private fun shizukuButtonLabel(vm: MainViewModel): String = when {
+    !vm.shizukuInstalled -> "Install Shizuku"
+    else -> "Connect Shizuku"
 }

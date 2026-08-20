@@ -116,8 +116,12 @@ jobs:
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         # No -PversionBuild override: build.gradle.kts auto-increments versionBuild in
         # version.properties on every build. The persist step below commits that bump back.
+        #
+        # Explicitly the playstore flavor, never `bundleRelease` (ambiguous now, and even if
+        # it weren't, defaulting to whichever flavor Gradle picks first is exactly the mistake
+        # that would upload the accessibility-using github build to Play).
         run: |
-          ./gradlew bundleRelease
+          ./gradlew bundlePlaystoreRelease
 
       - name: Upload AAB artifact
         # Always upload the artifact — even on a failed Play upload the user can grab the file
@@ -126,7 +130,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: MCPserved-release-aab
-          path: app/build/outputs/bundle/release/*.aab
+          path: app/build/outputs/bundle/playstoreRelease/*.aab
           if-no-files-found: error
 
       - name: Publish to Google Play (internal completed + alpha/beta/prod draft)
@@ -142,7 +146,7 @@ jobs:
         if: ${{ github.event_name == 'push' || inputs.publish }}
         env:
           PACKAGE_NAME: ${{ steps.meta.outputs.package_name }}
-          AAB_GLOB: app/build/outputs/bundle/release/*.aab
+          AAB_GLOB: app/build/outputs/bundle/playstoreRelease/*.aab
           PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
         run: |
           # Python 3 is preinstalled on ubuntu-latest. google-auth-httplib2 and httplib2 are

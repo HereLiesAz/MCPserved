@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Play Store flavor overlay.
+
+    Removes the accessibility service declaration entirely, via AGP's
+    manifest-merge tools:node="remove" — not just leaving it unused. The
+    service can then never bind on this build, BIND_ACCESSIBILITY_SERVICE
+    never appears in this flavor's merged manifest, and there is nothing
+    here for Play review to weigh the Accessibility API Restricted Use
+    policy against.
+
+    This flavor reads the screen and dispatches input through Shizuku
+    (ADB-level shell, no root) instead — see backend/ShizukuBackend.kt and
+    backend/UiAutomatorTree.kt. Root remains an optional bonus backend on
+    this flavor too, same as the github flavor; only Accessibility is gone.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <application>
+        <service
+            android:name=".service.McpAccessibilityService"
+            tools:node="remove" />
+    </application>
+</manifest>

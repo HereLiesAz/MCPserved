@@ -3,6 +3,8 @@ package com.hereliesaz.mcpserved.ui
 import android.app.Application
 import android.content.Intent
 import android.content.pm.ApplicationInfo
+import android.content.pm.PackageManager
+import android.net.Uri
 import android.provider.Settings
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -35,6 +37,8 @@ import kotlinx.coroutines.withContext
 import java.util.UUID
 
 private const val KEY_PREFERRED_HOST = "preferred_host"
+private const val SHIZUKU_PACKAGE = "moe.shizuku.privileged.api"
+private const val SHIZUKU_REQUEST_CODE = 7301
 
 /**
  * State for the whole application, which is small enough not to want more.
@@ -671,6 +675,54 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         )
+    }
+
+    // ---- Shizuku: the playstore flavor's readiness signal, in place of accessibility ---
+
+    /** Whether the Shizuku app is installed at all — the first rung of onboarding. */
+    val shizukuInstalled: Boolean
+        get() = runCatching {
+            getApplication<Application>().packageManager.getPackageInfo(SHIZUKU_PACKAGE, 0)
+            true
+        }.getOrDefault(false)
+
+    /**
+     * Whether this app currently holds Shizuku's permission. Mirrors
+     * [com.hereliesaz.mcpserved.backend.ShizukuBackend]'s own availability
+     * check — `pingBinder()` false means Shizuku isn't installed, isn't
+     * paired, or died on the last reboot; permission can only be granted
+     * once the binder is actually alive.
+     */
+    val shizukuReady: Boolean
+        get() = runCatching {
+            rikka.shizuku.Shizuku.pingBinder() &&
+                rikka.shizuku.Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED
+        }.getOrDefault(false)
+
+    /**
+     * One button that tracks exactly where the user is, same shape as
+     * [openAccessibilitySettings] on the github flavor: not installed →
+     * the Play listing; installed but not paired → wireless-debugging
+     * settings, where Android 11+'s pair-with-a-code flow needs no computer;
+     * paired but not yet permitted → Shizuku's own permission dialog.
+     */
+    fun connectShizuku() {
+        val ctx = getApplication<Application>()
+        when {
+            !shizukuInstalled -> runCatching {
+                ctx.startActivity(
+                    Intent(Intent.ACTION_VIEW, Uri.parse("https://play.google.com/store/apps/details?id=$SHIZUKU_PACKAGE"))
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                )
+            }
+            !runCatching { rikka.shizuku.Shizuku.pingBinder() }.getOrDefault(false) -> runCatching {
+                ctx.startActivity(
+                    Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                )
+            }
+            else -> runCatching { rikka.shizuku.Shizuku.requestPermission(SHIZUKU_REQUEST_CODE) }
+        }
     }
 
     fun openNotificationSettings() {

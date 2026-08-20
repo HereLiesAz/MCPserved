@@ -25,10 +25,16 @@ import rikka.shizuku.Shizuku
  * Process creation uses `Shizuku.newProcess`, which is not public API. It is
  * reached by reflection and guarded: a signature change upstream degrades this
  * backend to unavailable rather than crashing the service.
+ *
+ * Tree reading, node-id resolution, and scroll all go through [UiAutomatorTree]
+ * rather than accessibility — this is the primary backend for a build with no
+ * `McpAccessibilityService` declared at all (see `src/playstore/AndroidManifest.xml`).
  */
 class ShizukuBackend : ControlBackend {
 
     override val name = "shizuku"
+
+    private val uiTree = UiAutomatorTree(::sh)
 
     private val newProcess = runCatching {
         Shizuku::class.java.getDeclaredMethod(
@@ -46,6 +52,7 @@ class ShizukuBackend : ControlBackend {
     override val caps: Set<Cap>
         get() = if (!available) emptySet() else setOf(
             Cap.SHELL_SHIZUKU,
+            Cap.TREE,
             Cap.GESTURE,
             Cap.TEXT_INPUT,
             Cap.GLOBAL_KEYS,
@@ -72,8 +79,9 @@ class ShizukuBackend : ControlBackend {
         }
     }
 
-    override suspend fun tree(maxDepth: Int): Result<Pruner.Result> =
-        ControlBackend.unsupported("tree", name)
+    override suspend fun tree(maxDepth: Int): Result<Pruner.Result> = uiTree.tree(maxDepth)
+
+    override suspend fun resolveNode(nodeId: String): Result<Pair<Int, Int>> = uiTree.resolve(nodeId)
 
     override suspend fun foregroundPackage(): Result<String> =
         resumed().map { it.substringBefore('/') }
@@ -96,8 +104,23 @@ class ShizukuBackend : ControlBackend {
     override suspend fun swipe(x1: Int, y1: Int, x2: Int, y2: Int, ms: Int): Result<Unit> =
         sh("input swipe $x1 $y1 $x2 $y2 $ms").map { }
 
-    override suspend fun scroll(nodeId: String, dir: ScrollDir): Result<Unit> =
-        ControlBackend.unsupported("scroll", name)
+    /**
+     * No node-scroll action to invoke over shell — the same swipe-across-the-
+     * node's-bounds fallback [A11yBackend.scroll] uses when a node refuses
+     * `ACTION_SCROLL_FORWARD`/`BACKWARD`, computed from [uiTree]'s cached
+     * bounds rather than a live node.
+     */
+    override suspend fun scroll(nodeId: String, dir: ScrollDir): Result<Unit> {
+        val r = uiTree.boundsOf(nodeId) ?: return err("node $nodeId not found — call ui_tree first")
+        val dx = r.width / 3
+        val dy = r.height / 3
+        return when (dir) {
+            ScrollDir.DOWN -> swipe(r.centerX, r.centerY + dy, r.centerX, r.centerY - dy, 300)
+            ScrollDir.UP -> swipe(r.centerX, r.centerY - dy, r.centerX, r.centerY + dy, 300)
+            ScrollDir.LEFT -> swipe(r.centerX + dx, r.centerY, r.centerX - dx, r.centerY, 300)
+            ScrollDir.RIGHT -> swipe(r.centerX - dx, r.centerY, r.centerX + dx, r.centerY, 300)
+        }
+    }
 
     override suspend fun type(text: String, nodeId: String?): Result<Unit> {
         if (nodeId != null) return ControlBackend.unsupported("type(nodeId)", name)
@@ -128,4 +151,6 @@ class ShizukuBackend : ControlBackend {
         ControlBackend.unsupported("capture", name)
 
     override suspend fun shell(cmd: String): Result<String> = sh(cmd)
+
+    private fun <T> err(msg: String): Result<T> = Result.failure(IllegalStateException(msg))
 }

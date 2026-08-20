@@ -205,14 +205,15 @@ class Dispatcher(
      * but a caller working from a tree it fetched three actions ago and computing
      * its own centre points is a caller that will eventually tap the wrong thing
      * after a scroll it did not account for.
+     *
+     * Delegates to [Resolver.resolveNode] rather than reaching into
+     * [McpAccessibilityService] directly — a build with no accessibility path
+     * resolves the same node id through whichever privileged backend's
+     * [com.hereliesaz.mcpserved.backend.UiAutomatorTree] cached it instead.
      */
-    private fun pointFor(nodeId: String?, x: Int?, y: Int?): Pair<Int, Int>? {
+    private suspend fun pointFor(nodeId: String?, x: Int?, y: Int?): Pair<Int, Int>? {
         if (nodeId == null) return if (x != null && y != null) x to y else null
-        val svc = McpAccessibilityService.instance ?: return null
-        val node = svc.findById(nodeId) ?: return null
-        val r = android.graphics.Rect().also { node.getBoundsInScreen(it) }
-        if (r.width() <= 0 || r.height() <= 0) return null
-        return r.centerX() to r.centerY()
+        return resolver.resolveNode(nodeId).getOrNull()
     }
 
     private suspend fun tap(req: Request.Tap): Response {
