@@ -15,6 +15,14 @@ There are two layers to keep separate:
 
 This page covers both.
 
+There are also two **build flavors** of the app itself, which change which
+on-device backends can even exist: `github` (Accessibility present, same as
+described throughout this page) and `playstore` (Accessibility never
+declared at all — see [Two build flavors](#two-build-flavors) below). Every
+`Cap.TREE`/`scroll` claim on this page needs to be read with that in mind:
+what used to be "accessibility-only" is now "accessibility when present,
+else whichever privileged backend has it."
+
 ## The on-device backends
 
 Every backend implements `ControlBackend`. Every method returns `Result`; an
@@ -41,7 +49,7 @@ observation and gestures regardless of root.
 
 Root-backed control via a persistent `su` shell.
 
-- **Caps (when available):** `SHELL_ROOT`, `CAPTURE_SILENT`, `GESTURE`,
+- **Caps (when available):** `SHELL_ROOT`, `TREE`, `CAPTURE_SILENT`, `GESTURE`,
   `TEXT_INPUT`, `GLOBAL_KEYS`, `CLIPBOARD`.
 - Availability is probed **once**, at construction, by running `su -c id` and
   checking for `uid=0` — not by looking for the `su` binary, which Magisk hides.
@@ -49,8 +57,10 @@ Root-backed control via a persistent `su` shell.
 - `capture` uses `screencap -p`, decodes, downscales to `maxPx`, and re-encodes as
   JPEG — the single clearest reason to prefer root, since it needs no
   MediaProjection consent dialog.
-- Does **not** implement `tree` (uiautomator dump is slower and yields less than
-  the accessibility tree) or `scroll` (needs a resolvable node id).
+- `tree` and `scroll` go through `UiAutomatorTree` (see below) — this used to be
+  a deliberate omission ("uiautomator dump is slower and yields less than the
+  accessibility tree, not worth it"), reversed once a real build (`playstore`,
+  below) exists with no accessibility tree to compare against at all.
 - `type` rejects a `nodeId` — `input text` cannot address a specific node, and
   typing into the wrong field looks like success until much later.
 
@@ -58,8 +68,9 @@ Root-backed control via a persistent `su` shell.
 
 ADB-level control via Shizuku, for unrooted devices. Reaches everything
 `adb shell` reaches — `input`, `am`, `pm`, `settings` — and nothing beyond it.
+This is the `playstore` flavor's primary backend.
 
-- **Caps (when available):** `SHELL_SHIZUKU`, `GESTURE`, `TEXT_INPUT`,
+- **Caps (when available):** `SHELL_SHIZUKU`, `TREE`, `GESTURE`, `TEXT_INPUT`,
   `GLOBAL_KEYS`, `CLIPBOARD`.
 - Available only when the reflected `Shizuku.newProcess` resolves, the binder
   pings, and the permission is granted. Reached by reflection and guarded: an
@@ -67,10 +78,72 @@ ADB-level control via Shizuku, for unrooted devices. Reaches everything
   crashing.
 - **No capture:** shell uid cannot read the framebuffer on modern releases, so it
   advertises no capture capability and screenshots fall through to MediaProjection
-  (which is unimplemented — see below).
-- Does not implement `tree` or `scroll`; `type` rejects a `nodeId`.
+  (which is unimplemented — see below). This is the one real capability gap on an
+  unrooted `playstore` install: no screenshot at all until MediaProjection ships.
+- `tree` and `scroll` go through `UiAutomatorTree`, same as root.
+- `type` rejects a `nodeId` — `input text` cannot address a specific node.
 - **Shizuku dies on reboot.** Without root, every restart costs a manual re-pair;
   the backend reports unavailability cleanly rather than failing per-call.
+
+### Reading the tree without accessibility (`UiAutomatorTree`)
+
+Shared by `RootBackend` and `ShizukuBackend` — neither has a live
+`AccessibilityNodeInfo` tree to walk, so both read the screen the way `adb`
+always has: `uiautomator dump` to a file, `cat` it back over the same shell
+channel, and parse the XML.
+
+- Produces the **same `UiNode` shape and the same node-id hash** a live
+  accessibility walk does (`NodeId.raw(resourceId, class, ordinal, depth)` —
+  `uiautomator dump`'s `resource-id`/`class` attributes are themselves
+  serialized straight from `getViewIdResourceName()`/`getClassName()`, so the
+  two schemes agree given the same inputs). A node id from either source
+  resolves identically; nothing downstream needs to know which produced it.
+- Caches the most recent dump's node-id → bounds map, so a `tap(nodeId=...)`
+  or `scroll(nodeId=...)` right after a `ui_tree` call doesn't re-dump —
+  only `ui_tree` itself pays the `uiautomator dump` cost (upward of a
+  second).
+- `scroll` has no node-scroll action to invoke over shell, so it falls back
+  to a swipe across ~70%/30% of the node's cached bounds — the same
+  fallback geometry `A11yBackend.scroll` uses when a node refuses
+  `ACTION_SCROLL_FORWARD`/`BACKWARD`.
+- No explicit "is this visible" flag in a `uiautomator` dump the way a live
+  node tree has one; every dumped node is treated as visible. There is also
+  no direct "is this an edit field" attribute — `editable` is approximated
+  from the class name (`...EditText`). Both are best-effort, unverified
+  against a real device as of this writing.
+- Strictly slower and lower-fidelity than a live accessibility walk, which is
+  exactly why `Resolver` only ever reaches it when accessibility isn't
+  present at all: slower-and-lesser beats absent.
+
+## Two build flavors
+
+`app/build.gradle.kts` declares a `distribution` flavor dimension with two
+flavors, same `applicationId`:
+
+- **`github`** — everything above, unchanged. Accessibility present and
+  preferred; Shizuku and root are bonus backends. Sideloaded from GitHub
+  Releases.
+- **`playstore`** — `McpAccessibilityService` is removed from the manifest
+  entirely (`app/src/playstore/AndroidManifest.xml`, via AGP's
+  `tools:node="remove"` merge — confirmed with `aapt2 dump xmltree` against
+  a built APK that `BIND_ACCESSIBILITY_SERVICE` is completely absent).
+  Shizuku is the primary backend; root remains an optional bonus. This
+  exists because the Accessibility API's restricted-use policy makes an app
+  whose actual purpose is AI-driven automation a poor fit for Play review —
+  a build that never touches Accessibility at all sidesteps that risk
+  entirely, and Shizuku is itself a Play-published, uncontroversial tool.
+
+Node-id resolution for `tap`/`type`/`long_press` no longer reaches into
+`McpAccessibilityService` directly the way it once did — `Dispatcher.pointFor`
+goes through `Resolver.resolveNode(nodeId)`, which chains over `Cap.TREE`
+backends exactly like `tree()` does. Accessibility's live lookup and
+`UiAutomatorTree`'s cached lookup are interchangeable to every caller.
+
+**Not yet available on `playstore`:** macro recording (it watches the
+accessibility event stream — see [protocol.md](protocol.md#macros) — which
+doesn't exist to watch on this flavor) and screenshots on an unrooted device
+(the `CAPTURE_PROJECTION`/MediaProjection gap above applies to both flavors,
+but only `playstore` lacks root as commonly).
 
 ## The per-operation resolver
 
@@ -89,7 +162,7 @@ accessibility even on a rooted device.
 | `tree` | `TREE` |
 | `foregroundPackage` / `foregroundActivity` | `TREE`, `SHELL_ROOT`, `SHELL_SHIZUKU` |
 | `tap` / `longPress` / `swipe` | `GESTURE`, `SHELL_ROOT`, `SHELL_SHIZUKU` |
-| `scroll` | `TREE` (accessibility-only — needs a resolvable node id) |
+| `scroll` | `TREE` (needs a resolvable node id — accessibility live, or a privileged backend's cached `UiAutomatorTree` dump) |
 | `type` | `TEXT_INPUT`, `SHELL_ROOT`, `SHELL_SHIZUKU` |
 | `key` | `GLOBAL_KEYS`, `SHELL_ROOT`, `SHELL_SHIZUKU` |
 | `launch` | `SHELL_ROOT`, `SHELL_SHIZUKU` (accessibility has no launch path) |
@@ -136,7 +209,7 @@ listed. See [mcp-tools](mcp-tools.md) and [protocol](protocol.md).
 
 | Cap | Meaning |
 | --- | --- |
-| `TREE` | Accessibility connected; semantic node tree available. |
+| `TREE` | Semantic node tree available — from a live accessibility walk when connected, or from `UiAutomatorTree`'s `uiautomator dump` parse via root/Shizuku otherwise. |
 | `GESTURE` | Tap / long-press / swipe dispatch. |
 | `TEXT_INPUT` | Text entry. |
 | `GLOBAL_KEYS` | Global keys (BACK, HOME, RECENTS, NOTIFICATIONS; ENTER/DELETE need a shell backend). |

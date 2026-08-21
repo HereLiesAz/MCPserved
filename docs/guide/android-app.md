@@ -1,12 +1,34 @@
 # Android app
 
-The on-device half. It runs the accessibility service that reads and touches the
-screen, holds the grant table, hosts the loopback control server, and shows the
-UI. The app is inert until several deliberate steps are taken; each is described
-below.
+The on-device half. It reads and touches the screen (via accessibility or, on
+the `playstore` build, Shizuku/root — see below), holds the grant table,
+hosts the loopback control server, and shows the UI. The app is inert until
+several deliberate steps are taken; each is described below.
 
-The single Activity has four destinations: **Status**, **Pair**, **Grants**, and
-**Log**. Everything with a lifetime beyond the screen lives in the service.
+Ships as two build flavors, same UI and feature set except where noted:
+**`github`** (accessibility present, sideloaded from GitHub Releases) and
+**`playstore`** (no accessibility service at all — Shizuku instead — built
+for Play Store distribution, where Accessibility's restricted-use policy is
+a poor fit for what this app does). See [backends](backends.md#two-build-flavors)
+for the technical split.
+
+The single Activity has five destinations: **Status**, **Connect**, **Grants**,
+**Macros**, and **Log**. Everything with a lifetime beyond the screen lives
+in the service.
+
+- **Connect** ("Connect a model") is itself three tabs: **This phone**
+  (remote access — wider bind, IPv6, UPnP, relay, the one-tap Quick Tunnel;
+  see [remote-access](remote-access.md)), **Direct** (the on-device
+  MCP-over-HTTP endpoint and bearer token; see [connect](connect.md)), and
+  **Desktop bridge** (pairing with the desktop app or `mcpserved` CLI —
+  there is no separate "Pair" destination anymore, this tab is it).
+- **Macros** records a named, package-scoped sequence of taps, holds, and
+  typed text by watching the accessibility event stream while the target
+  app is open, then lets it be replayed later — locally, or by an AI host
+  calling `macro_run`. Swipes, scrolls, and global keys can't be captured
+  this way (no raw gesture data in the event stream). **Recording needs
+  accessibility**, so it isn't available on the `playstore` flavor today;
+  see [protocol.md](protocol.md#macros) for the wire-level detail.
 
 ## The disclosure / consent gate
 
@@ -29,16 +51,23 @@ until paired, and cannot act until a package is granted.
 
 ### The remote-access disclosure
 
-A second, later, narrower gate covers the four opt-in remote-access paths
-(see [remote-access](remote-access.md)): the first time the operator turns on
-the wider-bind, IPv6, UPnP, or relay toggle on the "Connect a model" screen, a
-dialog explains what turning it on actually does before the switch takes
-effect. Declining leaves the switch off; accepting is recorded as a second
-durable bit (`ConsentStore.acceptRemoteAccess`), separate from the
-accessibility disclosure above, since a device that never enables remote
-access never needs to see it.
+A second, later, narrower gate covers the opt-in remote-access paths (see
+[remote-access](remote-access.md)): the first time the operator turns on the
+wider-bind, IPv6, UPnP, or relay toggle — or taps the one-tap Quick Tunnel
+button — on the "This phone" tab, a dialog explains what turning it on
+actually does before it takes effect. Declining leaves it off; accepting is
+recorded as a second durable bit (`ConsentStore.acceptRemoteAccess`),
+separate from the accessibility disclosure above, since a device that never
+enables remote access never needs to see it.
 
-## Enabling the accessibility service
+## Enabling the accessibility service (`github` flavor)
+
+This section describes the `github` flavor's onboarding path. On `playstore`,
+where `McpAccessibilityService` isn't declared at all, the **Status** screen's
+button instead walks through installing Shizuku, pairing it over wireless
+debugging, and granting it permission — see
+[backends.md](backends.md#two-build-flavors) for what that backend can and
+can't do differently. Both flavors otherwise arm and disarm the same way.
 
 `McpAccessibilityService` is the only handle to the window tree and the only cheap
 source of the current foreground package. It must be enabled in system settings —
@@ -178,15 +207,23 @@ through a tool call that fails. See [backends](backends.md) and
 
 | Permission | Why |
 | --- | --- |
-| `BIND_ACCESSIBILITY_SERVICE` | Read the screen and dispatch input — the core function. |
-| `INTERNET` | Platform requirement to open any socket, including the loopback `ServerSocket`. No outbound connections are made. |
+| `BIND_ACCESSIBILITY_SERVICE` | Read the screen and dispatch input. **`github` flavor only** — removed entirely from `playstore`'s manifest (`app/src/playstore/AndroidManifest.xml`); that flavor doesn't declare this permission at all and uses Shizuku instead. |
+| `INTERNET` | Platform requirement to open any socket, including the loopback `ServerSocket`. Makes no outbound connections by default; opt-in remote access can (see [remote-access](remote-access.md)), including a bundled `cloudflared` binary the one-tap Quick Tunnel launches as a subprocess. |
 | `WAKE_LOCK` | Hold the screen during a session. |
 | `FOREGROUND_SERVICE` + `FOREGROUND_SERVICE_SPECIAL_USE` | Keep the control service resident while armed. No narrower FGS type fits "user-authorized device automation". |
 | `POST_NOTIFICATIONS` | The ongoing session notification. |
 | `RECEIVE_BOOT_COMPLETED` | Re-arm after reboot only if armed beforehand. |
-| `CAMERA` (`required=false`) | Scan the pairing QR. Used only on the Pair screen. |
+| `CAMERA` (`required=false`) | Scan the pairing QR, on the Connect → Desktop bridge tab. |
 | `QUERY_ALL_PACKAGES` | Populate the grants screen; a filtered list would silently hide apps the user meant to grant. |
 
-The app collects and shares no data, has no analytics, no accounts, and no
-backend. Pairing keys live in `EncryptedSharedPreferences` and never leave the
-device.
+Neither flavor requests a dangerous permission for Shizuku or root — Shizuku's
+own permission model and grant are entirely between the operator and the
+Shizuku app, outside this manifest.
+
+The app collects and shares no data on its own, has no analytics, no
+accounts, and no backend. Pairing keys live in `EncryptedSharedPreferences`
+and never leave the device. Opt-in features are the exception: the in-app
+Cloudflare relay deploy sends a user-pasted API token to Cloudflare's own
+API, and the Quick Tunnel routes the control connection through Cloudflare's
+network while it's running — both off by default, both behind the
+remote-access disclosure above.
