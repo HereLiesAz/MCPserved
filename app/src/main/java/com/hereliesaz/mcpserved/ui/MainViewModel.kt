@@ -55,12 +55,6 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val pairing = Pairing(app)
     private val store = GrantStore(app)
     private val consent = ConsentStore(app)
-    // Declared here, not down with the rest of the macros section below, because
-    // init{} calls refreshMacros() — and Kotlin initializes properties in source
-    // order. A property declared after init{} is still null when init{} runs;
-    // viewModelScope.launch's Main.immediate dispatcher runs far enough
-    // synchronously to hit that null field mid-construction. Every store this
-    // class owns lives up here for exactly this reason.
     private val macroStore = MacroStore(app)
 
     /**
@@ -429,14 +423,6 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun refreshStatus() {
         _statusTick.value++
         if (a11yConnected && !serviceRunning) startService()
-    }
-
-    init {
-        refreshApps()
-        refreshMacros()
-        viewModelScope.launch {
-            _hasConsented.value = withContext(Dispatchers.IO) { consent.isAccepted }
-        }
     }
 
     /**
@@ -831,5 +817,23 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     override fun onCleared() {
         desktopDiscovery.stop()
         super.onCleared()
+    }
+
+    // Declared last, deliberately: Kotlin initializes properties and init{}
+    // blocks in source order, and viewModelScope.launch's Main.immediate
+    // dispatcher runs far enough synchronously (up to the first suspension
+    // point) to reach a property declared below init{} while it is still
+    // null. An init{} block placed anywhere earlier in the class is a crash
+    // waiting on whichever property gets added below it next — this one
+    // block, run only once every property above it in this file has already
+    // been constructed, is proof against that class of bug rather than a fix
+    // for one particular field (see the macroStore/_macros crashes this
+    // exact bug produced historically).
+    init {
+        refreshApps()
+        refreshMacros()
+        viewModelScope.launch {
+            _hasConsented.value = withContext(Dispatchers.IO) { consent.isAccepted }
+        }
     }
 }
