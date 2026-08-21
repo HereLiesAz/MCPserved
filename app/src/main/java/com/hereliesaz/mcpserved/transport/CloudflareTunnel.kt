@@ -28,12 +28,14 @@ import java.io.File
  * than crashing, and the caller should say so and point at the manual
  * `wrangler`/Cloudflare-dashboard paths in `relay/cloudflare/README.md`.
  *
- * **Unverified on real hardware.** Written against `cloudflared`'s
- * documented `tunnel --url` output shape (a line containing a
- * `https://….trycloudflare.com` URL once the tunnel is up), not exercised
- * against a running binary — there was no device available while writing
- * this. If the URL never appears, [start] times out and reports failure
- * rather than hanging.
+ * **Exercised against a running binary on real hardware** — and that surfaced
+ * a real bug, since fixed: `cloudflared` calls Cloudflare's own control-plane
+ * API at `https://api.trycloudflare.com` to provision the tunnel, and that
+ * call can itself get logged on the same combined stdout/stderr stream before
+ * the actual assigned hostname does. [awaitUrl] explicitly excludes that one
+ * fixed, reserved hostname now — a real tunnel address is always a random
+ * two-word subdomain, never literally `api`. If the (real) URL never appears,
+ * [start] times out and reports failure rather than hanging.
  */
 class CloudflareTunnel(private val appContext: Context) {
 
@@ -107,7 +109,7 @@ class CloudflareTunnel(private val appContext: Context) {
             proc.inputStream.bufferedReader().use { reader ->
                 while (true) {
                     val line = reader.readLine() ?: return null
-                    URL_PATTERN.find(line)?.let { return it.value }
+                    tunnelUrlIn(line)?.let { return it }
                 }
             }
         } finally {
@@ -115,10 +117,26 @@ class CloudflareTunnel(private val appContext: Context) {
         }
     }
 
-    private companion object {
+    internal companion object {
         const val TAG = "CloudflareTunnel"
         const val BINARY_NAME = "libcloudflared.so"
         const val TIMEOUT_MS = 30_000L
-        val URL_PATTERN = Regex("""https://[a-zA-Z0-9-]+\.trycloudflare\.com""")
+        val URL_PATTERN = Regex("""https://[a-zA-Z0-9-]+\.trycloudflare\.com""", RegexOption.IGNORE_CASE)
+
+        /**
+         * The real tunnel URL in one line of `cloudflared`'s output, if any —
+         * excluding `api.trycloudflare.com`, Cloudflare's own control-plane
+         * endpoint. `cloudflared` calls that API to provision the tunnel, and
+         * that call can itself get logged on the same combined stdout/stderr
+         * stream before the actual assigned hostname does; it's a fixed,
+         * reserved name, and a real Quick Tunnel address is always a random
+         * two-word subdomain, never literally "api". Confirmed live: without
+         * this exclusion, [awaitUrl] handed back the control-plane URL
+         * instead of a working tunnel address on a real device.
+         */
+        internal fun tunnelUrlIn(line: String): String? =
+            URL_PATTERN.findAll(line)
+                .map { it.value }
+                .firstOrNull { !it.equals("https://api.trycloudflare.com", ignoreCase = true) }
     }
 }
