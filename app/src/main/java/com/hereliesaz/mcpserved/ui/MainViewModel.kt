@@ -17,6 +17,7 @@ import com.hereliesaz.mcpserved.grant.GrantStore
 import com.hereliesaz.mcpserved.grant.RemoteAccessStore
 import com.hereliesaz.mcpserved.macro.Macro
 import com.hereliesaz.mcpserved.macro.MacroStore
+import com.hereliesaz.mcpserved.macro.RawGestureRecorder
 import com.hereliesaz.mcpserved.service.ControlService
 import com.hereliesaz.mcpserved.service.McpAccessibilityService
 import com.hereliesaz.mcpserved.transport.Cap
@@ -509,6 +510,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     private var recordingStepsJob: Job? = null
 
+    /**
+     * The active root-based recorder, when [startRecording] chose that path.
+     * Null whenever recording is idle, or when the active recording is
+     * accessibility-based instead — the two never run at once.
+     */
+    private var rawRecorder: RawGestureRecorder? = null
+    private var rawRecordingJob: Job? = null
+
     private val _macroRunResult = MutableStateFlow<String?>(null)
     val macroRunResult: StateFlow<String?> = _macroRunResult
 
@@ -522,10 +531,36 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
      * anything for the one app they were captured against (see
      * [com.hereliesaz.mcpserved.service.Dispatcher.macroRun]).
      *
-     * @return false when the accessibility service isn't connected, or a
-     *   recording is already running
+     * Root's [RawGestureRecorder] is strictly more capable than
+     * accessibility's [com.hereliesaz.mcpserved.macro.MacroRecorder] — it
+     * can capture swipes, which accessibility's event stream cannot report
+     * at all — so it wins whenever root is available, on either flavor.
+     * Accessibility is the fallback, and the only option at all on a
+     * `playstore`-flavor device without root.
+     *
+     * @return false when neither path is available, or a recording is
+     *   already running
      */
     fun startRecording(pkg: String): Boolean {
+        val svc = ControlService.instance
+        return if (svc != null && svc.resolver.hasRoot) startRawRecording(pkg, svc)
+        else startAccessibilityRecording(pkg)
+    }
+
+    private fun startRawRecording(pkg: String, svc: ControlService): Boolean {
+        if (rawRecorder != null) return false
+        val dm = getApplication<Application>().resources.displayMetrics
+        val recorder = RawGestureRecorder(svc.resolver::shell, dm.widthPixels, dm.heightPixels)
+        rawRecorder = recorder
+        _recordingState.value = RecordingState.Recording(pkg, 0)
+        recordingStepsJob = recorder.steps
+            .onEach { steps -> _recordingState.value = RecordingState.Recording(pkg, steps.size) }
+            .launchIn(viewModelScope)
+        rawRecordingJob = viewModelScope.launch(Dispatchers.IO) { recorder.start() }
+        return true
+    }
+
+    private fun startAccessibilityRecording(pkg: String): Boolean {
         val svc = McpAccessibilityService.instance ?: return false
         if (!svc.startRecording(pkg)) return false
         _recordingState.value = RecordingState.Recording(pkg, 0)
@@ -537,6 +572,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Discards whatever has been captured so far without saving it. */
     fun cancelRecording() {
+        rawRecorder?.stop()
+        rawRecorder = null
+        rawRecordingJob?.cancel()
+        rawRecordingJob = null
         McpAccessibilityService.instance?.stopRecording()
         recordingStepsJob?.cancel()
         recordingStepsJob = null
@@ -545,16 +584,18 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     /**
      * Stops recording and saves it as [name]. A blank name or an empty
-     * capture (nothing the accessibility event stream could translate into
-     * a step — see [com.hereliesaz.mcpserved.macro.MacroRecorder]) discards
-     * the recording instead of saving a macro that would do nothing.
+     * capture (nothing the active recorder could translate into a step)
+     * discards the recording instead of saving a macro that would do
+     * nothing.
      *
      * @return false when there was nothing to save
      */
     fun stopRecording(name: String): Boolean {
-        val svc = McpAccessibilityService.instance
         val pkg = (_recordingState.value as? RecordingState.Recording)?.pkg
-        val steps = svc?.stopRecording()
+        val steps = rawRecorder?.stop() ?: McpAccessibilityService.instance?.stopRecording()
+        rawRecorder = null
+        rawRecordingJob?.cancel()
+        rawRecordingJob = null
         recordingStepsJob?.cancel()
         recordingStepsJob = null
         _recordingState.value = RecordingState.Idle
