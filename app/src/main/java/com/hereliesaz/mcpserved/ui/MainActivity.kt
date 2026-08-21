@@ -1,9 +1,12 @@
 package com.hereliesaz.mcpserved.ui
 
+import android.app.Activity
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import com.hereliesaz.mcpserved.service.ControlService
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
@@ -40,6 +43,28 @@ class MainActivity : ComponentActivity() {
 
     private val vm: MainViewModel by viewModels()
 
+    /**
+     * The system's screen-capture consent dialog — the one thing
+     * [com.hereliesaz.mcpserved.backend.MediaProjectionBackend] cannot ask
+     * for itself, since only a foreground Activity may launch it. The result
+     * is a one-shot token; there is nothing to do with a denial but let the
+     * screen stay unreadable through this path (root or accessibility, when
+     * either is available, need no dialog at all).
+     */
+    private val screenCaptureLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val data = result.data
+        if (result.resultCode == Activity.RESULT_OK && data != null) {
+            ControlService.instance?.grantScreenCapture(result.resultCode, data)
+        }
+        vm.refreshStatus()
+    }
+
+    private fun requestScreenCapture() {
+        vm.screenCaptureIntent()?.let { screenCaptureLauncher.launch(it) }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
@@ -51,7 +76,7 @@ class MainActivity : ComponentActivity() {
                 // rather than either real surface, so nothing gated flashes.
                 val consented by vm.hasConsented.collectAsStateWithLifecycle()
                 when (consented) {
-                    true -> Root(vm)
+                    true -> Root(vm, onRequestScreenCapture = ::requestScreenCapture)
                     false -> DisclosureScreen(onAccept = vm::grantConsent, onDecline = { finish() })
                     null -> Surface(
                         modifier = Modifier.fillMaxSize(),
@@ -72,7 +97,7 @@ private enum class Dest(val label: String, val icon: ImageVector) {
 }
 
 @Composable
-private fun Root(vm: MainViewModel) {
+private fun Root(vm: MainViewModel, onRequestScreenCapture: () -> Unit) {
     var dest by remember { mutableStateOf(Dest.STATUS) }
 
     Scaffold(
@@ -94,7 +119,7 @@ private fun Root(vm: MainViewModel) {
             color = MaterialTheme.colorScheme.background
         ) {
             when (dest) {
-                Dest.STATUS -> StatusScreen(vm)
+                Dest.STATUS -> StatusScreen(vm, onRequestScreenCapture)
                 Dest.CONNECT -> ConnectScreen(vm)
                 Dest.GRANTS -> GrantsScreen(vm)
                 Dest.MACROS -> MacrosScreen(vm)

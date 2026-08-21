@@ -135,11 +135,15 @@ scopes. Remember grants **expire** (default 1 hour) and that `launch` checks the
 
 ## Screenshot fails through the app on an unrooted device
 
-**Symptom:** `screenshot` errors in the app backend on a device without root.
+**Symptom:** `screenshot` errors in the app backend on a device without root
+or accessibility.
 
-**Cause:** `MediaProjection` capture (`CAPTURE_PROJECTION`) is **declared but
-unimplemented**, and Shizuku's shell uid cannot read the framebuffer. Only root's
-silent `screencap` works through the app.
+**Cause:** Shizuku's shell uid cannot read the framebuffer, so screenshots on
+that path fall through to `MediaProjection` — which needs the operator to
+grant the system's one-time screen-capture consent dialog first (the "Enable
+screenshots" prompt on the Status screen). Until that grant exists, there's
+no capture path at all through the app on this device shape.
 
-**Fix:** use `ui_tree` instead (preferred anyway), or use the **adb** backend,
-whose `screencap` works regardless of root. See [backends](backends.md).
+**Fix:** grant the prompt once, use `ui_tree` instead (preferred anyway), or
+use the **adb** backend, whose `screencap` works regardless of root. See
+[backends](backends.md).

@@ -185,11 +185,26 @@ which app to bring forward first.
 A macro is a named, stored sequence of `Request`s — `tap`, `long_press`,
 `swipe`, `scroll`, `type`, or `key` — recorded against one package and
 replayed by `macro_run`. Recording happens on-device only (there is no wire
-request for it): the accessibility service watches its event stream while a
-recording is active and translates clicks, long clicks, and finished text
-entry into steps; swipes, scrolls, and global keys cannot be captured this
-way and never appear in a live recording, though the stored shape does not
-forbid them from some other source.
+request for it), through whichever of two recorders is available; the
+preference is root's whenever root is present, on either build flavor.
+
+- **Accessibility** (`MacroRecorder`) watches the accessibility event stream
+  while a recording is active and translates clicks, long clicks, and
+  finished text entry into steps. Swipes, scrolls, and global keys cannot be
+  captured this way — accessibility's event stream has no notion of them —
+  and never appear in a recording made through this path.
+- **Root** (`RawGestureRecorder`) reads raw touchscreen input directly
+  (`getevent -lt`, root only) and classifies each stroke by displacement and
+  duration into a tap, long press, or swipe — strictly more capable, since it
+  observes the actual touch stream rather than a semantic event. This is the
+  *only* recorder available on the `playstore` flavor, which never declares
+  AccessibilityService at all (see [backends.md](backends.md#two-build-flavors)).
+  Every step it records is coordinate-based rather than node-id-addressed, so
+  a recording is only good against the exact screen layout it was captured
+  against.
+
+Either way, the stored shape doesn't forbid a step type from some other
+source — `macro_run` doesn't care which recorder produced a macro.
 
 `macro_run` replays each step through the same dispatcher path — and the
 same per-step grant enforcement — a directly-issued action would use, after

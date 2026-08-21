@@ -15,6 +15,7 @@ import androidx.core.app.NotificationCompat
 import com.hereliesaz.mcpserved.R
 import com.hereliesaz.mcpserved.backend.A11yBackend
 import com.hereliesaz.mcpserved.backend.ControlBackend
+import com.hereliesaz.mcpserved.backend.MediaProjectionBackend
 import com.hereliesaz.mcpserved.backend.Resolver
 import com.hereliesaz.mcpserved.backend.RootBackend
 import com.hereliesaz.mcpserved.backend.ShizukuBackend
@@ -26,6 +27,7 @@ import com.hereliesaz.mcpserved.grant.GrantStore
 import com.hereliesaz.mcpserved.macro.MacroStore
 import com.hereliesaz.mcpserved.grant.RemoteAccessStore
 import com.hereliesaz.mcpserved.grant.SessionLog
+import com.hereliesaz.mcpserved.transport.Cap
 import com.hereliesaz.mcpserved.transport.CloudflareTunnel
 import com.hereliesaz.mcpserved.transport.LanAdvertiser
 import com.hereliesaz.mcpserved.transport.LocalServer
@@ -138,6 +140,8 @@ class ControlService : Service() {
         private set
     lateinit var advertiser: LanAdvertiser
         private set
+    lateinit var mediaProjectionBackend: MediaProjectionBackend
+        private set
 
     private lateinit var remoteAccess: RemoteAccessStore
     private var relayClient: RemoteRelayClient? = null
@@ -156,8 +160,13 @@ class ControlService : Service() {
 
         // Construction order is preference order. Accessibility first, so that
         // observation and gestures resolve to it even on a rooted device.
+        // MediaProjectionBackend last: it offers only CAPTURE_PROJECTION, and
+        // only once the operator has granted the one-time consent dialog (see
+        // grantScreenCapture) — root's screencap is strictly preferable when
+        // available, since it needs no dialog at all.
+        mediaProjectionBackend = MediaProjectionBackend(applicationContext)
         val backends: List<ControlBackend> =
-            listOf(A11yBackend(), RootBackend(), ShizukuBackend())
+            listOf(A11yBackend(), RootBackend(), ShizukuBackend(), mediaProjectionBackend)
 
         resolver = Resolver(backends)
         grants = GrantStore(applicationContext)
@@ -281,6 +290,7 @@ class ControlService : Service() {
         upnpMapper?.let { mapper -> scope.launch { mapper.unmapPort() } }
         _upnpMapping.value = null
         cloudflareTunnel?.stop()
+        if (::mediaProjectionBackend.isInitialized) mediaProjectionBackend.revoke()
         if (::server.isInitialized) scope.launch { server.stop() }
         scope.cancel()
         instance = null
@@ -328,6 +338,19 @@ class ControlService : Service() {
         cloudflareTunnel = null
         _tunnelState.value = TunnelState.Idle
     }
+
+    /** True once the operator has granted the MediaProjection consent dialog. */
+    val screenCaptureReady: Boolean get() = Cap.CAPTURE_PROJECTION in mediaProjectionBackend.caps
+
+    /**
+     * Consumes the consent result [MainActivity] got back from the system's
+     * screen-capture dialog. Call the moment it returns OK; the dialog's
+     * result is a one-shot Intent that can't be replayed later.
+     */
+    fun grantScreenCapture(resultCode: Int, data: Intent) = mediaProjectionBackend.grant(resultCode, data)
+
+    /** Revokes the current screen-capture grant, if any. */
+    fun revokeScreenCapture() = mediaProjectionBackend.revoke()
 
     /**
      * Opens a session and holds the screen awake for its duration.

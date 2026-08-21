@@ -77,13 +77,38 @@ This is the `playstore` flavor's primary backend.
   upstream signature change degrades the backend to unavailable rather than
   crashing.
 - **No capture:** shell uid cannot read the framebuffer on modern releases, so it
-  advertises no capture capability and screenshots fall through to MediaProjection
-  (which is unimplemented — see below). This is the one real capability gap on an
-  unrooted `playstore` install: no screenshot at all until MediaProjection ships.
+  advertises no capture capability and screenshots fall through to
+  `MediaProjectionBackend` (below) instead — a one-time consent dialog rather
+  than the silent `screencap` root gets.
 - `tree` and `scroll` go through `UiAutomatorTree`, same as root.
 - `type` rejects a `nodeId` — `input text` cannot address a specific node.
 - **Shizuku dies on reboot.** Without root, every restart costs a manual re-pair;
   the backend reports unavailability cleanly rather than failing per-call.
+
+### Screen capture without root (`MediaProjectionBackend`)
+
+The fallback when there's no root `screencap` to lean on — the common shape
+on an unrooted `playstore` install (Shizuku cannot read the framebuffer;
+see above).
+
+- **Caps:** `CAPTURE_PROJECTION` only, and only once the operator has
+  granted the system's screen-capture consent dialog once. That dialog can
+  only be launched from a foreground Activity, so `MainActivity` holds the
+  `ActivityResultLauncher` and hands the result to
+  `ControlService.grantScreenCapture()`, which forwards it to the backend;
+  `StatusScreen` surfaces the prompt, but only when it would actually change
+  anything (root already captures silently, so a rooted device never sees
+  it regardless of flavor).
+- Each `capture()` call builds a throwaway `VirtualDisplay` + `ImageReader`
+  pair sized to the real display, waits for exactly one frame, and tears
+  both down immediately — nothing holds an active capture surface open
+  between calls, so there's no persistent recording indicator beyond the
+  one the platform already shows for any live projection grant.
+- Every non-capture method returns `unsupported` — this backend exists
+  solely to fill the one gap Shizuku leaves.
+- API 34+ requires the invoking foreground service to declare the
+  `mediaProjection` type; `ControlService` declares it alongside
+  `specialUse` for exactly this reason.
 
 ### Reading the tree without accessibility (`UiAutomatorTree`)
 
@@ -139,11 +164,12 @@ goes through `Resolver.resolveNode(nodeId)`, which chains over `Cap.TREE`
 backends exactly like `tree()` does. Accessibility's live lookup and
 `UiAutomatorTree`'s cached lookup are interchangeable to every caller.
 
-**Not yet available on `playstore`:** macro recording (it watches the
-accessibility event stream — see [protocol.md](protocol.md#macros) — which
-doesn't exist to watch on this flavor) and screenshots on an unrooted device
-(the `CAPTURE_PROJECTION`/MediaProjection gap above applies to both flavors,
-but only `playstore` lacks root as commonly).
+Macro recording adapts the same way: `playstore` never has accessibility's
+event stream to watch, so recording there goes through root's raw-touch-
+event recorder instead whenever root is present — see
+[protocol.md](protocol.md#macros). Recording remains unavailable without
+root on a `playstore` device, same as it's always been for an unrooted
+device with no accessibility service on either flavor.
 
 ## The per-operation resolver
 
@@ -214,12 +240,15 @@ listed. See [mcp-tools](mcp-tools.md) and [protocol](protocol.md).
 | `TEXT_INPUT` | Text entry. |
 | `GLOBAL_KEYS` | Global keys (BACK, HOME, RECENTS, NOTIFICATIONS; ENTER/DELETE need a shell backend). |
 | `CAPTURE_SILENT` | Screen capture without a MediaProjection dialog (root `screencap`). |
-| `CAPTURE_PROJECTION` | Capture via MediaProjection. **Declared but unimplemented** — no code behind it. |
+| `CAPTURE_PROJECTION` | Capture via MediaProjection — one-time consent dialog, no root or Shizuku framebuffer access needed. |
 | `SHELL_ROOT` | Arbitrary shell via root. |
 | `SHELL_SHIZUKU` | Arbitrary shell via Shizuku (ADB-level, no root). |
 | `NOTIFICATIONS` | Notification shade access. |
 | `CLIPBOARD` | Clipboard access (privileged; Android forbids background clipboard reads). |
 
-> **MediaProjection is unimplemented.** `CAPTURE_PROJECTION` is advertised but has
-> no implementation, so an **unrooted device cannot screenshot through the app**.
-> The adb backend's `screencap` works regardless.
+> **MediaProjection needs a one-time grant.** Until the operator has clicked
+> through the system consent dialog once (`StatusScreen`'s "Enable
+> screenshots" prompt), an unrooted device with no accessibility service
+> cannot screenshot through the app. The adb backend's `screencap` works
+> regardless, and either root or accessibility being present skips the
+> dialog entirely.

@@ -40,7 +40,7 @@ surface (no `shell`) is advertised so a call can still explain the failure.
 | Tool | Purpose | Inputs | Notes |
 | --- | --- | --- | --- |
 | `ui_tree` | Read the current screen as an indented node tree. **The primary way to see the device** — prefer over `screenshot`. | `maxDepth` int, 1–100, default 40 | Requires `OBSERVE`. Node ids survive scrolling but not layout changes. Returns package, node count, pruned count, and the tree. |
-| `screenshot` | Capture the screen as an image. | `maxPx` int, 256–2048, default 768 | Requires `OBSERVE`. Use **only** when `ui_tree` returns no addressable nodes (games, canvas UI, some WebViews). Over adb, returned at native resolution (maxPx ignored); through the app, needs root (MediaProjection is unimplemented). |
+| `screenshot` | Capture the screen as an image. | `maxPx` int, 256–2048, default 768 | Requires `OBSERVE`. Use **only** when `ui_tree` returns no addressable nodes (games, canvas UI, some WebViews). Over adb, returned at native resolution (maxPx ignored); through the app, root or accessibility capture silently, otherwise it needs the operator's one-time MediaProjection consent grant (see [backends.md](backends.md#screen-capture-without-root-mediaprojectionbackend)). |
 | `notifications` | Read the notification shade, filtered to authorized packages. | none | Requires `OBSERVE` and, in app mode, notification access. Over adb it is a heuristic `dumpsys` parse. |
 
 ## Interaction tools
@@ -77,10 +77,14 @@ Coordinates computed from an older tree will miss after any scroll.
 | `macro_run` | Replay a saved macro's taps, holds, and typed text. | `name` string (required) | Runs every step through the same grant-checked path as a directly-issued action, so it can't exceed the recorded package's grant. Fails if that package isn't the current foreground app. **Unavailable over adb.** |
 
 Macros are recorded on the device itself, from the app's Macros tab — there is
-no tool for starting a recording. Recording watches the accessibility event
-stream for the app being recorded and turns clicks, long clicks, and finished
-text entry into steps; swipes, scrolls, and global keys cannot be captured
-this way. See [protocol](protocol.md#macros).
+no tool for starting a recording. Whichever of two recorders is available
+handles it: root's raw-touch-event recorder when root is present (captures
+taps, long presses, *and* swipes), otherwise the accessibility event stream
+for the app being recorded, which turns clicks, long clicks, and finished
+text entry into steps but cannot capture swipes, scrolls, or global keys.
+`playstore`-flavor devices always use the root recorder when recording is
+available at all, since that flavor has no accessibility event stream to
+fall back to. See [protocol](protocol.md#macros).
 
 ## Privileged tool
 
