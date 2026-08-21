@@ -52,6 +52,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val pairing = Pairing(app)
     private val store = GrantStore(app)
     private val consent = ConsentStore(app)
+    // Declared here, not down with the rest of the macros section below, because
+    // init{} calls refreshMacros() — and Kotlin initializes properties in source
+    // order. A property declared after init{} is still null when init{} runs;
+    // viewModelScope.launch's Main.immediate dispatcher runs far enough
+    // synchronously to hit that null field mid-construction. Every store this
+    // class owns lives up here for exactly this reason.
+    private val macroStore = MacroStore(app)
 
     /**
      * Whether the prominent disclosure has been accepted.
@@ -463,8 +470,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     // ---- macros: user-recorded, AI-runnable action sequences ---------------
-
-    private val macroStore = MacroStore(app)
+    // (macroStore itself is declared near the top of the class — see the comment there.)
 
     private val _macros = MutableStateFlow<List<Macro>>(emptyList())
     val macros: StateFlow<List<Macro>> = _macros
