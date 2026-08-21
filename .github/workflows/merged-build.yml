@@ -154,10 +154,12 @@ jobs:
         run: |
           set +e
 
-          # Build both flavors' APKs (signing comes from the env-driven signingConfigs.release
-          # in Gradle) — `assembleDebug` is ambiguous now that the app has a distribution
-          # dimension, and both flavors get published as separate release assets below.
-          ./gradlew assembleGithubDebug assemblePlaystoreDebug --build-cache > build.log 2>&1
+          # Only the github flavor gets built and published here — playstore has its own
+          # dedicated release pipeline (release-aab.yml → Play tracks), and the unit-tests
+          # job above already compiles/tests the playstore flavor for CI coverage, so
+          # assembling a playstore APK in this job would just burn build time on an
+          # artifact nothing downstream uses.
+          ./gradlew assembleGithubDebug --build-cache > build.log 2>&1
 
           EXIT_CODE=$?
           echo "exit_code=$EXIT_CODE" >> $GITHUB_OUTPUT
@@ -231,28 +233,24 @@ jobs:
              APP_NAME="App"
           fi
           
-          # Locate both flavors' built APKs. Both get published as separate release
-          # assets below — one build produces two meaningfully different artifacts now
-          # (playstore: Shizuku-only, no Accessibility; github: everything), and neither
-          # should silently stand in for or replace the other.
+          # Only the github flavor is published here. playstore has its own dedicated
+          # publish path (release-aab.yml → Play tracks) — putting its debug APK on a
+          # GitHub release too was redundant: nobody sideloading from GitHub wants the
+          # Shizuku-only build, and Play is the only real distribution channel for it.
           GITHUB_APK_ORIGINAL=$(find app/build/outputs/apk/github/debug -name "*.apk" | head -n 1)
-          PLAYSTORE_APK_ORIGINAL=$(find app/build/outputs/apk/playstore/debug -name "*.apk" | head -n 1)
 
-          if [ -z "$GITHUB_APK_ORIGINAL" ] || [ -z "$PLAYSTORE_APK_ORIGINAL" ]; then
-             echo "Error: expected both flavor APKs, found github='$GITHUB_APK_ORIGINAL' playstore='$PLAYSTORE_APK_ORIGINAL'"
+          if [ -z "$GITHUB_APK_ORIGINAL" ]; then
+             echo "Error: expected a github flavor APK, found none"
              exit 1
           fi
 
           GITHUB_TARGET_NAME="${APP_NAME}-${VERSION_NAME}-github-debug.apk"
-          PLAYSTORE_TARGET_NAME="${APP_NAME}-${VERSION_NAME}-playstore-debug.apk"
 
           # Rename for release
           mv "$GITHUB_APK_ORIGINAL" "$GITHUB_TARGET_NAME"
-          mv "$PLAYSTORE_APK_ORIGINAL" "$PLAYSTORE_TARGET_NAME"
 
           echo "TAG_NAME=$TAG_NAME" >> $GITHUB_ENV
           echo "GITHUB_APK_FILE=$GITHUB_TARGET_NAME" >> $GITHUB_ENV
-          echo "PLAYSTORE_APK_FILE=$PLAYSTORE_TARGET_NAME" >> $GITHUB_ENV
           
           # Package Build Tools (Optional)
           mkdir -p build_tools_package/tools build_tools_package/native
@@ -287,11 +285,11 @@ jobs:
                --target $GITHUB_SHA
 
              # Clobber ensures that if we re-run the workflow on the exact same commit, it replaces each named asset instead of failing — it never touches other assets already on the release.
-             gh release upload $TAG_NAME "$GITHUB_APK_FILE" "$PLAYSTORE_APK_FILE" --clobber
+             gh release upload $TAG_NAME "$GITHUB_APK_FILE" --clobber
              [ -f "$BUILD_TOOLS" ] && gh release upload $TAG_NAME "$BUILD_TOOLS" --clobber
           else
              echo "Creating new release..."
-             gh release create $TAG_NAME "$GITHUB_APK_FILE" "$PLAYSTORE_APK_FILE" --prerelease \
+             gh release create $TAG_NAME "$GITHUB_APK_FILE" --prerelease \
                --title "Latest Debug Build ($TAG_NAME)" \
                --notes "Auto-build from commit $GITHUB_SHA" \
                --target $GITHUB_SHA
