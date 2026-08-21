@@ -7,6 +7,7 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
@@ -193,7 +194,14 @@ class ControlService : Service() {
 
         setArmed(true)
         createChannel()
-        startForeground(NOTIFICATION_ID, buildNotification())
+        // Declares only specialUse here, deliberately not the mediaProjection type
+        // the manifest also allows: the platform requires an app already hold a
+        // live MediaProjection grant before a foreground service may claim that
+        // type at all — claiming it up front, before any capture consent exists,
+        // is a SecurityException on every session start (crashed exactly this way
+        // in production). grantScreenCapture() below adds the type the moment a
+        // grant actually exists, and revokeScreenCapture() drops it again.
+        startForeground(NOTIFICATION_ID, buildNotification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
 
         server.start()
         if (!mcpServer.startServer()) {
@@ -346,11 +354,29 @@ class ControlService : Service() {
      * Consumes the consent result [MainActivity] got back from the system's
      * screen-capture dialog. Call the moment it returns OK; the dialog's
      * result is a one-shot Intent that can't be replayed later.
+     *
+     * Elevates the running foreground service to also declare the
+     * `mediaProjection` type immediately once the grant lands — that
+     * declaration is only valid once a live [android.media.projection.MediaProjection]
+     * actually exists (see [onCreate]'s matching comment), so it cannot happen
+     * any earlier than this.
      */
-    fun grantScreenCapture(resultCode: Int, data: Intent) = mediaProjectionBackend.grant(resultCode, data)
+    fun grantScreenCapture(resultCode: Int, data: Intent) {
+        mediaProjectionBackend.grant(resultCode, data)
+        if (screenCaptureReady) {
+            startForeground(
+                NOTIFICATION_ID,
+                buildNotification(),
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE or ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+            )
+        }
+    }
 
-    /** Revokes the current screen-capture grant, if any. */
-    fun revokeScreenCapture() = mediaProjectionBackend.revoke()
+    /** Revokes the current screen-capture grant, if any, and drops the now-unused FGS type. */
+    fun revokeScreenCapture() {
+        mediaProjectionBackend.revoke()
+        startForeground(NOTIFICATION_ID, buildNotification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+    }
 
     /**
      * Opens a session and holds the screen awake for its duration.

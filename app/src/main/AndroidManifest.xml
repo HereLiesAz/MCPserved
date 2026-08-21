@@ -85,9 +85,12 @@
             foregroundServiceType includes mediaProjection alongside specialUse:
             API 34+ requires the foreground service invoking MediaProjection APIs
             to declare and be running as that type (see MediaProjectionBackend.kt).
-            Declaring it here doesn't start using it — that still needs the
-            operator's one-time consent dialog — it just satisfies the platform's
-            prerequisite for when they do.
+            This attribute only names the type the service is ALLOWED to run as —
+            it does not itself request it. ControlService.startForeground() must
+            not actually include FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION in its
+            type argument until a live MediaProjection grant exists: claiming the
+            type before that is a SecurityException on every session start (a real
+            crash, not a hypothetical — see ControlService.onCreate()'s comment).
         -->
         <service
             android:name=".service.ControlService"
