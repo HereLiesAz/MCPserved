@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Overrides the handful of `disclosure_*` strings that name the
+    accessibility-service path — this flavor never declares that service
+    (see app/src/playstore/AndroidManifest.xml) and controls the device via
+    Shizuku instead, so the disclosure screen has to say so accurately.
+    Everything else falls through to app/src/main/res/values/strings.xml
+    unchanged.
+-->
+<resources>
+    <string name="disclosure_a11y_title">It uses Shizuku</string>
+    <string name="disclosure_a11y_body">To read the screen and dispatch input it relies on Shizuku, an open-source tool that grants ADB-level (developer/debugging) access without root. Used only for what the paired client requests, and only for apps you\'ve explicitly granted.</string>
+    <string name="disclosure_control_title">You stay in control</string>
+    <string name="disclosure_control_body">Nothing can happen until you connect Shizuku, pair a client, arm the app, and grant specific packages. Sessions are time-limited, shown in an ongoing notification you can stop anytime, and logged while open. An empty grant list leaves the app unable to touch anything.</string>
+    <string name="disclosure_agree">By continuing, you agree to let MCPserved use Shizuku\'s device-control access for this purpose.</string>
+</resources>
