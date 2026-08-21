@@ -95,10 +95,12 @@ claiming `isAccessibilityTool`.
 ## Known limits
 
 - **iOS is impossible.** No third-party iOS application can automate another.
-- **`MediaProjection` capture is unimplemented.** It is declared as a capability
-  (`CAPTURE_PROJECTION`) but has no code behind it, so an unrooted device cannot
-  screenshot *through the app*. The adb backend's `screencap` works regardless.
-  See [backends](backends.md).
+- **Screenshots on an unrooted, no-accessibility device need a one-time grant.**
+  Without root or accessibility to capture silently through, `MediaProjection`
+  needs the operator to click through a system consent dialog once before
+  screenshots work through the app. Root or accessibility being present skips
+  it entirely; the adb backend's `screencap` works regardless. See
+  [backends](backends.md).
 - **The screen stays on during an app session** and **Shizuku dies on reboot** —
   see [android-app](android-app.md) and [troubleshooting](troubleshooting.md).
 - **Remote access is opt-in, off by default, and only for the app backend.**

@@ -23,12 +23,14 @@ in the service.
   **Desktop bridge** (pairing with the desktop app or `mcpserved` CLI —
   there is no separate "Pair" destination anymore, this tab is it).
 - **Macros** records a named, package-scoped sequence of taps, holds, and
-  typed text by watching the accessibility event stream while the target
-  app is open, then lets it be replayed later — locally, or by an AI host
-  calling `macro_run`. Swipes, scrolls, and global keys can't be captured
-  this way (no raw gesture data in the event stream). **Recording needs
-  accessibility**, so it isn't available on the `playstore` flavor today;
-  see [protocol.md](protocol.md#macros) for the wire-level detail.
+  typed text while the target app is open, then lets it be replayed later —
+  locally, or by an AI host calling `macro_run`. Root's raw-touch-event
+  recorder is used whenever root is present (it also captures swipes);
+  otherwise recording falls back to watching the accessibility event stream,
+  which can't capture swipes, scrolls, or global keys at all (no raw gesture
+  data in that stream). On the `playstore` flavor — no accessibility service
+  to fall back to — recording is available only when root is; see
+  [protocol.md](protocol.md#macros) for the wire-level detail.
 
 ## The disclosure / consent gate
 
@@ -211,6 +213,7 @@ through a tool call that fails. See [backends](backends.md) and
 | `INTERNET` | Platform requirement to open any socket, including the loopback `ServerSocket`. Makes no outbound connections by default; opt-in remote access can (see [remote-access](remote-access.md)), including a bundled `cloudflared` binary the one-tap Quick Tunnel launches as a subprocess. |
 | `WAKE_LOCK` | Hold the screen during a session. |
 | `FOREGROUND_SERVICE` + `FOREGROUND_SERVICE_SPECIAL_USE` | Keep the control service resident while armed. No narrower FGS type fits "user-authorized device automation". |
+| `FOREGROUND_SERVICE_MEDIA_PROJECTION` | API 34+ requires the foreground service invoking MediaProjection APIs to declare this type. Declaring it doesn't start a capture by itself — that still needs the operator's one-time consent grant (see [backends](backends.md#screen-capture-without-root-mediaprojectionbackend)). |
 | `POST_NOTIFICATIONS` | The ongoing session notification. |
 | `RECEIVE_BOOT_COMPLETED` | Re-arm after reboot only if armed beforehand. |
 | `CAMERA` (`required=false`) | Scan the pairing QR, on the Connect → Desktop bridge tab. |
