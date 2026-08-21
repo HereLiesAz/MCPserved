@@ -128,6 +128,27 @@ something is installed or rebranded. Nothing is reachable until it appears in th
 grant table with a scope; an empty table renders the whole service inert, which is
 the correct resting state. Granted packages sort to the top.
 
+Finding the right app in a list of everything installed is filtered several ways
+at once, all AND'd together (each individual chip group is OR'd within itself —
+picking two categories finds apps in *either*, not both):
+
+- **Text search** — name or package, live on every keystroke.
+- **Granted** / **System** toggles.
+- **Scope** — apps currently holding a given scope.
+- **Kind of app** — the platform's own `android:appCategory` (Games, Social,
+  Productivity, and so on — the same categories Play Store itself files an app
+  under), read via `ApplicationInfo.category`. Voluntary and far from universal,
+  so most apps land in "Uncategorized"; only categories some installed app
+  actually declares appear as chips at all.
+- **Already has access to** — sensitive OS permissions (Camera, Microphone,
+  Location, Contacts, SMS & phone, Storage & media, Calendar) the app **currently
+  holds**, not merely ones its manifest declares wanting. Lets "what can already
+  see my camera" be asked directly rather than inferred from an app's name.
+
+Both of the last two read straight off `AppRow` (`MainViewModel.refreshApps`) —
+see `AppCategory.kt` for the category mapping and the curated permission-tag
+list.
+
 Scopes are individually selectable (not only presets):
 
 | Scope | Permits |
