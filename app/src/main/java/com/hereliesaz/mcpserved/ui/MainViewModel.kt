@@ -3,6 +3,7 @@ package com.hereliesaz.mcpserved.ui
 import android.app.Application
 import android.content.Intent
 import android.content.pm.ApplicationInfo
+import android.content.pm.PackageInfo
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.provider.Settings
@@ -88,7 +89,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         val pkg: String,
         val label: String,
         val scopes: Set<Scope>,
-        val isSystem: Boolean
+        val isSystem: Boolean,
+        val category: AppCategory,
+        val permissionTags: Set<PermissionTag>
     )
 
     private val _apps = MutableStateFlow<List<AppRow>>(emptyList())
@@ -450,7 +453,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
         // getInstalledApplications is a blocking binder call that can be slow and,
         // on devices with many apps, throw TransactionTooLargeException. viewModelScope
-        // runs on Dispatchers.Main, so the whole enumeration is moved to IO.
+        // runs on Dispatchers.Main, so the whole enumeration is moved to IO. Permissions
+        // are fetched per-package rather than via a single bulk GET_PERMISSIONS call —
+        // more binder round-trips, but each is small, instead of one giant transaction
+        // sized by every installed package's permission list.
         _apps.value = withContext(Dispatchers.IO) {
             pm.getInstalledApplications(0)
                 .filter { pm.getLaunchIntentForPackage(it.packageName) != null }
@@ -459,12 +465,31 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                         pkg = info.packageName,
                         label = pm.getApplicationLabel(info).toString(),
                         scopes = granted[info.packageName]?.scopes ?: emptySet(),
-                        isSystem = (info.flags and ApplicationInfo.FLAG_SYSTEM) != 0
+                        isSystem = (info.flags and ApplicationInfo.FLAG_SYSTEM) != 0,
+                        category = AppCategory.of(info),
+                        permissionTags = PermissionTag.tagsFor(currentlyGrantedPermissions(pm, info.packageName))
                     )
                 }
                 .sortedWith(compareBy({ it.scopes.isEmpty() }, { it.label.lowercase() }))
         }
     }
+
+    /**
+     * Permissions [pkg] currently holds, not merely ones its manifest
+     * declares wanting — `requestedPermissions` lists both granted and
+     * refused requests, so only the flagged-granted ones count. Failures
+     * (a package uninstalled mid-enumeration, most likely) fall back to
+     * "holds nothing" rather than crashing the whole app list.
+     */
+    private fun currentlyGrantedPermissions(pm: PackageManager, pkg: String): Set<String> =
+        runCatching {
+            val info = pm.getPackageInfo(pkg, PackageManager.GET_PERMISSIONS)
+            val requested = info.requestedPermissions ?: return@runCatching emptySet()
+            val flags = info.requestedPermissionsFlags ?: return@runCatching emptySet()
+            requested.indices
+                .filter { flags[it] and PackageInfo.REQUESTED_PERMISSION_GRANTED != 0 }
+                .mapTo(mutableSetOf()) { requested[it] }
+        }.getOrDefault(emptySet())
 
     /**
      * Sets the scope set for a package.

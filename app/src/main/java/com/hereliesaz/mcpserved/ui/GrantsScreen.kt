@@ -53,20 +53,46 @@ fun GrantsScreen(vm: MainViewModel) {
     var grantedOnly by remember { mutableStateOf(false) }
     var systemOnly by remember { mutableStateOf(false) }
     var scopeFilter by remember { mutableStateOf(emptySet<Scope>()) }
+    var categoryFilter by remember { mutableStateOf(emptySet<AppCategory>()) }
+    var permissionFilter by remember { mutableStateOf(emptySet<PermissionTag>()) }
     var editing by remember { mutableStateOf<MainViewModel.AppRow?>(null) }
     var confirmRevokeAll by remember { mutableStateOf(false) }
 
-    // Every filter narrows further — text, granted-state, system-vs-user, and
-    // scope all AND together, live on every keystroke or chip tap. Scope
-    // itself is OR within its own set: "SHELL or TYPE" finds anything that
-    // can do either, the usual multi-select reading, not "must have both."
-    val visible = remember(apps, filter, grantedOnly, systemOnly, scopeFilter) {
+    // Every filter narrows further — text, granted-state, system-vs-user,
+    // scope, category, and permission all AND together, live on every
+    // keystroke or chip tap. Each individual group is OR within itself:
+    // "SHELL or TYPE" finds anything that can do either, the usual
+    // multi-select reading, not "must have both."
+    val visible = remember(apps, filter, grantedOnly, systemOnly, scopeFilter, categoryFilter, permissionFilter) {
         apps.filter { row ->
             (filter.isBlank() || row.label.contains(filter, true) || row.pkg.contains(filter, true)) &&
                 (!grantedOnly || row.scopes.isNotEmpty()) &&
                 (!systemOnly || row.isSystem) &&
-                (scopeFilter.isEmpty() || row.scopes.any { it in scopeFilter })
+                (scopeFilter.isEmpty() || row.scopes.any { it in scopeFilter }) &&
+                (categoryFilter.isEmpty() || row.category in categoryFilter) &&
+                (permissionFilter.isEmpty() || row.permissionTags.any { it in permissionFilter })
         }
+    }
+
+    // Only offer a category/permission chip for a kind of app that's actually
+    // installed — a chip for "Maps & navigation" is a dead end, not a filter,
+    // on a device with no map apps.
+    val presentCategories = remember(apps) {
+        AppCategory.entries.filter { cat -> apps.any { it.category == cat } }
+    }
+    val presentPermissions = remember(apps) {
+        PermissionTag.entries.filter { tag -> apps.any { tag in it.permissionTags } }
+    }
+
+    val anyFilterActive = filter.isNotBlank() || grantedOnly || systemOnly ||
+        scopeFilter.isNotEmpty() || categoryFilter.isNotEmpty() || permissionFilter.isNotEmpty()
+    fun clearFilters() {
+        filter = ""
+        grantedOnly = false
+        systemOnly = false
+        scopeFilter = emptySet()
+        categoryFilter = emptySet()
+        permissionFilter = emptySet()
     }
 
     val grantedCount = apps.count { it.scopes.isNotEmpty() }
@@ -93,16 +119,22 @@ fun GrantsScreen(vm: MainViewModel) {
 
         Spacer(Modifier.height(12.dp))
 
-        OutlinedTextField(
-            value = filter,
-            onValueChange = { filter = it },
-            placeholder = { Text("Search by name or package") },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth()
-        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            OutlinedTextField(
+                value = filter,
+                onValueChange = { filter = it },
+                placeholder = { Text("Search by name or package") },
+                singleLine = true,
+                modifier = Modifier.weight(1f)
+            )
+            if (anyFilterActive) {
+                TextButton(onClick = { clearFilters() }) { Text("Clear") }
+            }
+        }
 
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(12.dp))
 
+        FilterLabel("Status & scope")
         Row(
             Modifier
                 .fillMaxWidth()
@@ -130,7 +162,59 @@ fun GrantsScreen(vm: MainViewModel) {
             }
         }
 
+        if (presentCategories.isNotEmpty()) {
+            Spacer(Modifier.height(8.dp))
+            FilterLabel("Kind of app")
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                presentCategories.forEach { cat ->
+                    FilterChip(
+                        selected = cat in categoryFilter,
+                        onClick = {
+                            categoryFilter = if (cat in categoryFilter) categoryFilter - cat else categoryFilter + cat
+                        },
+                        label = { Text(cat.label) }
+                    )
+                }
+            }
+        }
+
+        if (presentPermissions.isNotEmpty()) {
+            Spacer(Modifier.height(8.dp))
+            FilterLabel("Already has access to")
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                presentPermissions.forEach { tag ->
+                    FilterChip(
+                        selected = tag in permissionFilter,
+                        onClick = {
+                            permissionFilter =
+                                if (tag in permissionFilter) permissionFilter - tag else permissionFilter + tag
+                        },
+                        label = { Text(tag.label) }
+                    )
+                }
+            }
+        }
+
         Spacer(Modifier.height(8.dp))
+
+        if (visible.isEmpty() && apps.isNotEmpty()) {
+            Text(
+                "Nothing matches these filters.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(vertical = 24.dp)
+            )
+        }
 
         LazyColumn(Modifier.fillMaxSize()) {
             items(visible, key = { it.pkg }) { row ->
@@ -181,6 +265,17 @@ fun GrantsScreen(vm: MainViewModel) {
     }
 }
 
+/** A small caption above a chip row, naming what that group of chips filters by. */
+@Composable
+private fun FilterLabel(text: String) {
+    Text(
+        text,
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(bottom = 4.dp)
+    )
+}
+
 /**
  * A row's default tap opens [onClick] — the full [ScopeDialog] — for anyone
  * who wants to pick exact scopes or a different duration. [onQuickToggle] is
@@ -214,6 +309,17 @@ private fun AppListRow(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+            val tags = buildList {
+                if (row.category != AppCategory.UNDEFINED) add(row.category.label)
+                addAll(row.permissionTags.map { it.label })
+            }
+            if (tags.isNotEmpty()) {
+                Text(
+                    tags.joinToString(" · "),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
             if (row.scopes.isNotEmpty()) {
                 Spacer(Modifier.height(2.dp))
                 Text(
