@@ -10,6 +10,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -48,7 +49,7 @@ import com.hereliesaz.mcpserved.BuildConfig
  * one-line secondary link, not a row competing for the same attention.
  */
 @Composable
-fun StatusScreen(vm: MainViewModel) {
+fun StatusScreen(vm: MainViewModel, onRequestScreenCapture: () -> Unit = {}) {
     val tick by vm.statusTick.collectAsState()
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { vm.refreshStatus() }
     val isPlaystore = BuildConfig.FLAVOR == "playstore"
@@ -119,6 +120,24 @@ fun StatusScreen(vm: MainViewModel) {
                     Spacer(Modifier.height(8.dp))
                     TextButton(onClick = vm::stopService) { Text("Disarm") }
                 }
+            }
+
+            // Only shown when it would actually change anything: root already
+            // captures silently, and this is the sole gap it fills — the
+            // unrooted, no-accessibility case (the common playstore shape).
+            if (connected && vm.needsScreenCaptureGrant) {
+                Spacer(Modifier.height(24.dp))
+                Text(
+                    "Screenshots need one more one-time grant — there's no root or " +
+                        "accessibility to capture silently through.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.height(8.dp))
+                OutlinedButton(
+                    onClick = onRequestScreenCapture,
+                    modifier = Modifier.fillMaxWidth()
+                ) { Text("Enable screenshots") }
             }
         }
 

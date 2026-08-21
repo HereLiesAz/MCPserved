@@ -19,6 +19,7 @@ import com.hereliesaz.mcpserved.macro.Macro
 import com.hereliesaz.mcpserved.macro.MacroStore
 import com.hereliesaz.mcpserved.service.ControlService
 import com.hereliesaz.mcpserved.service.McpAccessibilityService
+import com.hereliesaz.mcpserved.transport.Cap
 import com.hereliesaz.mcpserved.transport.DesktopDiscovery
 import com.hereliesaz.mcpserved.transport.McpServer
 import com.hereliesaz.mcpserved.transport.PairingPush
@@ -379,6 +380,28 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     val a11yConnected: Boolean get() = McpAccessibilityService.instance != null
 
     val serviceRunning: Boolean get() = ControlService.instance != null
+
+    /**
+     * True once the operator has granted the MediaProjection screenshot
+     * dialog. Only meaningful when neither accessibility nor root can
+     * capture the screen — see [MediaProjectionBackend].
+     */
+    val screenCaptureReady: Boolean get() = ControlService.instance?.screenCaptureReady ?: false
+
+    /** True when screenshots need the one-time MediaProjection grant — no root to bypass it with. */
+    val needsScreenCaptureGrant: Boolean
+        get() {
+            val svc = ControlService.instance ?: return false
+            return !svc.screenCaptureReady && Cap.CAPTURE_SILENT !in svc.resolver.caps
+        }
+
+    /** The intent [MainActivity] should launch to request the consent dialog, if the service is up. */
+    fun screenCaptureIntent(): Intent? = ControlService.instance?.mediaProjectionBackend?.captureIntent()
+
+    fun revokeScreenCapture() {
+        ControlService.instance?.revokeScreenCapture()
+        _statusTick.value++
+    }
 
     /**
      * Bumped by [refreshStatus] so [StatusScreen] recomposes and re-reads

@@ -37,6 +37,7 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
@@ -80,10 +81,18 @@
             a session: a service that existed only while a session ran could never
             be told to begin one.
         -->
+        <!--
+            foregroundServiceType includes mediaProjection alongside specialUse:
+            API 34+ requires the foreground service invoking MediaProjection APIs
+            to declare and be running as that type (see MediaProjectionBackend.kt).
+            Declaring it here doesn't start using it — that still needs the
+            operator's one-time consent dialog — it just satisfies the platform's
+            prerequisite for when they do.
+        -->
         <service
             android:name=".service.ControlService"
             android:exported="false"
-            android:foregroundServiceType="specialUse">
+            android:foregroundServiceType="specialUse|mediaProjection">
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="User-authorized on-device automation, reachable by default only over a local loopback connection; remote access is opt-in" />
