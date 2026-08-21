@@ -9,6 +9,7 @@ import { tryLoadConfig } from "./config.js";
 import { AppLink } from "./app-link.js";
 import { AdbLink } from "./adb-link.js";
 import { RelayLink } from "./relay-link.js";
+import { TunnelLink } from "./tunnel-link.js";
 import type { Link } from "./link.js";
 import { buildTools, type Capabilities, type ToolDef } from "./tools.js";
 import { pair } from "./pair.js";
@@ -30,7 +31,13 @@ import { install, connect } from "./install.js";
  * `MCPSERVED_HOST` makes app mode dial that address directly instead of
  * `adb forward`-ing a loopback port — for an IPv6, UPnP-mapped, or LAN address
  * the device advertised opt-in (see remote-access.md), where there is no adb
- * path to fall back to in the first place.
+ * path to fall back to in the first place. Two more explicit modes reach the
+ * device with no local network path at all: `MCPSERVED_MODE=tunnel` (paired
+ * with `MCPSERVED_HOST=<the app's Quick Tunnel URL>`) needs nothing deployed
+ * or configured beyond the app's one-tap button; `MCPSERVED_MODE=relay`
+ * (paired with `MCPSERVED_RELAY_URL` + `MCPSERVED_RELAY_ROOM`) is for a relay
+ * the operator has deployed themselves, for a persistent address instead of
+ * a one-tap ephemeral one.
  *
  * This process holds no authority of its own. In app mode it carries sealed
  * frames to a device that decides what to permit; in adb mode it is a thin shell
@@ -75,6 +82,38 @@ async function chooseLink(): Promise<Link> {
       );
     }
     return relay;
+  }
+
+  // Tunnel is relay's zero-setup sibling: the app's one-tap Quick Tunnel
+  // needs no Cloudflare account, no API token, and no relay to deploy — the
+  // https:// URL it shows *is* the address, dialed directly over WebSocket
+  // (see tunnel-link.ts for why this isn't just RelayLink with a different
+  // URL). MCPSERVED_HOST carries the tunnel URL here, same variable the
+  // IPv6/UPnP paths use for a direct address — this mode just interprets it
+  // as a URL to dial over WebSocket instead of a bare host to dial over TCP.
+  if (mode === "tunnel") {
+    const config = tryLoadConfig();
+    if (!config) {
+      throw new Error("MCPSERVED_MODE=tunnel, but no pairing was found. Run `npx mcpserved pair` first.");
+    }
+    const tunnelUrl = process.env.MCPSERVED_HOST;
+    if (!tunnelUrl) {
+      throw new Error(
+        "MCPSERVED_MODE=tunnel requires MCPSERVED_HOST (the https:// URL the app's " +
+          "\"Start tunnel\" button showed).",
+      );
+    }
+    const tunnel = new TunnelLink(config, tunnelUrl);
+    const caps = await tunnel.send({ op: "capabilities" }, 15_000);
+    if (!caps || !caps.ok) {
+      tunnel.close();
+      throw new Error(
+        `MCPSERVED_MODE=tunnel, but the device did not answer over ${tunnelUrl}. Check that the ` +
+          "tunnel is still running (it stops if the app is killed or the session ends) and the " +
+          "device is armed.",
+      );
+    }
+    return tunnel;
   }
 
   const config = mode === "adb" ? null : tryLoadConfig();

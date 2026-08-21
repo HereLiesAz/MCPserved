@@ -362,13 +362,26 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /**
-     * The connect string an operator pastes into an AI host's terminal.
+     * The connect string for the session-scoped, one-tap Quick Tunnel.
      *
-     * Takes [url] explicitly rather than reading [relayUrl] itself: a
-     * session-scoped Quick Tunnel's address and the stable, persisted
-     * "deploy your own relay" address are two different things a caller
-     * chooses between, never something this function should guess at or
-     * silently prefer one of.
+     * Deliberately **not** [relayConnectString] with the tunnel's URL
+     * substituted in — a Quick Tunnel has no relay software listening on the
+     * other end to broker a room, so `MCPSERVED_MODE=relay` (which dials a
+     * room-pairing protocol at that URL) would simply fail to connect. This
+     * is `MCPSERVED_MODE=tunnel`, dialed as a direct WebSocket with no room
+     * at all — see `mcp/src/tunnel-link.ts`. No relay to deploy, no API
+     * token, nothing to configure beyond having pressed the button.
+     */
+    fun tunnelConnectString(url: String): String =
+        "MCPSERVED_MODE=tunnel MCPSERVED_HOST=$url mcpserved install claude-code"
+
+    /**
+     * The connect string for a persistent, operator-deployed relay.
+     *
+     * Takes [url] explicitly rather than reading [relayUrl] itself, since a
+     * caller may be sending the just-deployed URL before it's finished being
+     * persisted to [relayUrl] — never something this function should read
+     * off state that might be one recomposition behind.
      */
     fun relayConnectString(url: String): String =
         "MCPSERVED_MODE=relay MCPSERVED_RELAY_URL=$url " +

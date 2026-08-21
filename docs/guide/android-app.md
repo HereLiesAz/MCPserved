@@ -234,7 +234,7 @@ through a tool call that fails. See [backends](backends.md) and
 | `INTERNET` | Platform requirement to open any socket, including the loopback `ServerSocket`. Makes no outbound connections by default; opt-in remote access can (see [remote-access](remote-access.md)), including a bundled `cloudflared` binary the one-tap Quick Tunnel launches as a subprocess. |
 | `WAKE_LOCK` | Hold the screen during a session. |
 | `FOREGROUND_SERVICE` + `FOREGROUND_SERVICE_SPECIAL_USE` | Keep the control service resident while armed. No narrower FGS type fits "user-authorized device automation". |
-| `FOREGROUND_SERVICE_MEDIA_PROJECTION` | API 34+ requires the foreground service invoking MediaProjection APIs to declare this type. Declaring it doesn't start a capture by itself — that still needs the operator's one-time consent grant (see [backends](backends.md#screen-capture-without-root-mediaprojectionbackend)). |
+| `FOREGROUND_SERVICE_MEDIA_PROJECTION` | API 34+ requires the foreground service invoking MediaProjection APIs to be running as this type. The manifest only permits it — `ControlService` doesn't actually claim it via `startForeground()` until the operator's one-time consent grant exists, and drops it again on revoke (see [backends](backends.md#screen-capture-without-root-mediaprojectionbackend)). |
 | `POST_NOTIFICATIONS` | The ongoing session notification. |
 | `RECEIVE_BOOT_COMPLETED` | Re-arm after reboot only if armed beforehand. |
 | `CAMERA` (`required=false`) | Scan the pairing QR, on the Connect → Desktop bridge tab. |

@@ -106,9 +106,15 @@ see above).
   one the platform already shows for any live projection grant.
 - Every non-capture method returns `unsupported` — this backend exists
   solely to fill the one gap Shizuku leaves.
-- API 34+ requires the invoking foreground service to declare the
-  `mediaProjection` type; `ControlService` declares it alongside
-  `specialUse` for exactly this reason.
+- API 34+ requires the invoking foreground service to be *running as* the
+  `mediaProjection` type — not merely permitted to be, by the manifest's
+  `android:foregroundServiceType`. Declaring it in the manifest only names
+  what the service is allowed to become; actually claiming that type via
+  `startForeground()` before a live grant exists is a `SecurityException`
+  on every session start (a real crash, not a hypothetical this repo hit).
+  `ControlService` starts as plain `specialUse`, then elevates to
+  `specialUse|mediaProjection` the moment `grantScreenCapture()` succeeds,
+  and drops back to `specialUse` on `revokeScreenCapture()`.
 
 ### Reading the tree without accessibility (`UiAutomatorTree`)
 
