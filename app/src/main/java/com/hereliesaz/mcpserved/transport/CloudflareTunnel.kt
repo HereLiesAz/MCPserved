@@ -109,6 +109,12 @@ class CloudflareTunnel(private val appContext: Context) {
             proc.inputStream.bufferedReader().use { reader ->
                 while (true) {
                     val line = reader.readLine() ?: return null
+                    // cloudflared's own output is the only diagnostic available when
+                    // this fails — there is no other source. Logged at DEBUG rather
+                    // than surfaced in-app: it's expected to be read via `adb logcat`
+                    // by whoever is chasing down why a tunnel didn't come up, not
+                    // shown to every operator on every successful run.
+                    Log.d(TAG, "cloudflared: $line")
                     tunnelUrlIn(line)?.let { return it }
                 }
             }
