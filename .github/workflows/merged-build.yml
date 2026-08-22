@@ -276,7 +276,20 @@ jobs:
           if gh release view $TAG_NAME > /dev/null 2>&1; then
              echo "Updating existing release..."
 
-             # Clean up ONLY the build-tools asset to avoid conflicts
+             # Every APK filename embeds the version (…-VERSION-github-debug.apk), and
+             # versionBuild auto-increments every single run — so --clobber (which only
+             # replaces an asset with an EXACT name match) never touched the previous
+             # build's APK at all. Every run left its predecessor behind: this release
+             # accumulated 18 versioned "-github-debug.apk" files before anyone noticed,
+             # with no obvious "latest" among them and a very real chance of someone
+             # grabbing a stale one — which Android then refuses to install over a newer
+             # copy already on the device (INSTALL_FAILED_VERSION_DOWNGRADE). A release
+             # titled "Latest Debug Build" should only ever have the latest build's APK
+             # on it, so delete every prior "*-github-debug.apk" asset before uploading
+             # the new one — matching the build-tools.zip cleanup already done here.
+             for old in $(gh release view "$TAG_NAME" --json assets --jq '.assets[].name' | grep -- '-github-debug\.apk$' || true); do
+               gh release delete-asset "$TAG_NAME" "$old" -y || true
+             done
              gh release delete-asset "$TAG_NAME" "$BUILD_TOOLS" -y || true
 
              gh release edit $TAG_NAME --prerelease \
@@ -284,14 +297,13 @@ jobs:
                --notes "Auto-build from commit $GITHUB_SHA" \
                --target $GITHUB_SHA
 
-             # Clobber ensures that if we re-run the workflow on the exact same commit, it replaces each named asset instead of failing — it never touches other assets already on the release.
-             gh release upload $TAG_NAME "$GITHUB_APK_FILE" --clobber
-             [ -f "$BUILD_TOOLS" ] && gh release upload $TAG_NAME "$BUILD_TOOLS" --clobber
+             gh release upload $TAG_NAME "$GITHUB_APK_FILE"
+             [ -f "$BUILD_TOOLS" ] && gh release upload $TAG_NAME "$BUILD_TOOLS"
           else
              echo "Creating new release..."
              gh release create $TAG_NAME "$GITHUB_APK_FILE" --prerelease \
                --title "Latest Debug Build ($TAG_NAME)" \
                --notes "Auto-build from commit $GITHUB_SHA" \
                --target $GITHUB_SHA
-             [ -f "$BUILD_TOOLS" ] && gh release upload $TAG_NAME "$BUILD_TOOLS" --clobber
+             [ -f "$BUILD_TOOLS" ] && gh release upload $TAG_NAME "$BUILD_TOOLS"
           fi
