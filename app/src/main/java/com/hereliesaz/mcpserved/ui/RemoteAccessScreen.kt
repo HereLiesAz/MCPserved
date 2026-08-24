@@ -10,10 +10,13 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -167,13 +170,18 @@ fun RemoteAccessScreen(vm: MainViewModel) {
             enabled = tunnelState !is ControlService.Companion.TunnelState.Starting,
             modifier = Modifier.fillMaxWidth()
         ) {
-            Text(
-                when (tunnelState) {
-                    is ControlService.Companion.TunnelState.Starting -> "Starting…"
-                    is ControlService.Companion.TunnelState.Running -> "Stop tunnel"
-                    else -> "Start tunnel and send to your AI assistant"
+            if (tunnelState is ControlService.Companion.TunnelState.Starting) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    CircularProgressIndicator(modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(12.dp))
+                    Text("Starting…")
                 }
-            )
+            } else {
+                Text(
+                    if (tunnelState is ControlService.Companion.TunnelState.Running) "Stop tunnel"
+                    else "Start tunnel and send to your AI assistant"
+                )
+            }
         }
         when (val state = tunnelState) {
             is ControlService.Companion.TunnelState.Running -> {
@@ -323,9 +331,15 @@ fun RemoteAccessScreen(vm: MainViewModel) {
             enabled = cloudflareDeployState !is MainViewModel.DeployState.Deploying,
             modifier = Modifier.fillMaxWidth()
         ) {
-            Text(
-                if (cloudflareDeployState is MainViewModel.DeployState.Deploying) "Deploying…" else "Deploy"
-            )
+            if (cloudflareDeployState is MainViewModel.DeployState.Deploying) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    CircularProgressIndicator(modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(12.dp))
+                    Text("Deploying…")
+                }
+            } else {
+                Text("Deploy")
+            }
         }
         when (val state = cloudflareDeployState) {
             is MainViewModel.DeployState.Done -> {

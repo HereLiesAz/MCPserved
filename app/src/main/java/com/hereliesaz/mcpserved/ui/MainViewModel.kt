@@ -43,6 +43,10 @@ private const val KEY_PREFERRED_HOST = "preferred_host"
 private const val SHIZUKU_PACKAGE = "moe.shizuku.privileged.api"
 private const val SHIZUKU_REQUEST_CODE = 7301
 
+/** How long [MainViewModel.startService]'s "Connecting…" feedback polls for, and how often. */
+private const val CONNECTING_POLL_INTERVAL_MS = 150L
+private const val CONNECTING_POLL_ATTEMPTS = 20
+
 /**
  * State for the whole application, which is small enough not to want more.
  *
@@ -274,11 +278,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
      * armed already — there is nothing at the other end of the tunnel otherwise.
      */
     fun startTunnel() {
-        com.hereliesaz.mcpserved.service.ControlService.instance?.startTunnel()
+        com.hereliesaz.mcpserved.service.ControlService.requestStartTunnel()
     }
 
     fun stopTunnel() {
-        com.hereliesaz.mcpserved.service.ControlService.instance?.stopTunnel()
+        com.hereliesaz.mcpserved.service.ControlService.requestStopTunnel()
     }
 
     /** Addresses this device could be reached at if [wildcardMcpBind] is set. */
@@ -768,12 +772,35 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         _isPaired.value = false
     }
 
+    /**
+     * True from the moment [startService] is tapped until [serviceRunning]
+     * actually flips or [CONNECTING_POLL_ATTEMPTS] is exhausted.
+     *
+     * [startForegroundService] returns before the service has bound —
+     * [serviceRunning] is a plain getter over [ControlService.instance], so
+     * nothing recomposes [StatusScreen] to reflect that until the next
+     * [_statusTick] bump. Without this, the "Connect" button's tap has no
+     * visible effect at all until the next `ON_RESUME`.
+     */
+    private val _connecting = MutableStateFlow(false)
+    val connecting: StateFlow<Boolean> = _connecting
+
     fun startService() {
         val ctx = getApplication<Application>()
         ctx.startForegroundService(Intent(ctx, ControlService::class.java))
+        _connecting.value = true
+        viewModelScope.launch {
+            for (attempt in 1..CONNECTING_POLL_ATTEMPTS) {
+                delay(CONNECTING_POLL_INTERVAL_MS)
+                _statusTick.value++
+                if (serviceRunning) break
+            }
+            _connecting.value = false
+        }
     }
 
     fun stopService() {
+        _connecting.value = false
         val ctx = getApplication<Application>()
         ctx.startService(
             Intent(ctx, ControlService::class.java).setAction(ControlService.ACTION_DISARM)

@@ -113,6 +113,34 @@ class ControlService : Service() {
 
         private val _tunnelState = MutableStateFlow<TunnelState>(TunnelState.Idle)
         val tunnelState: StateFlow<TunnelState> = _tunnelState
+
+        /**
+         * Entry point for the UI's "start tunnel" tap. [startTunnel] is an
+         * instance method, but the button that triggers it can be pressed
+         * before the service has ever bound — [instance] is `null` then, and
+         * a plain `instance?.startTunnel()` would silently do nothing at all,
+         * leaving no sign the tap registered. Routing through here means
+         * there is always a [TunnelState] update either way.
+         */
+        fun requestStartTunnel() {
+            val svc = instance
+            if (svc == null) {
+                _tunnelState.value =
+                    TunnelState.Error("Not connected yet — finish the Status tab first.")
+                return
+            }
+            svc.startTunnel()
+        }
+
+        /** Same reasoning as [requestStartTunnel]: never a silent no-op. */
+        fun requestStopTunnel() {
+            val svc = instance
+            if (svc == null) {
+                _tunnelState.value = TunnelState.Idle
+                return
+            }
+            svc.stopTunnel()
+        }
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
