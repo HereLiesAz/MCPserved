@@ -424,18 +424,35 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     val statusTick: StateFlow<Int> = _statusTick
 
     /**
+     * Last reading of [a11yConnected], so [refreshStatus] can tell "just
+     * became connected" from "was already connected" — null until the first
+     * call, so that call's reading sets the baseline rather than a hardcoded
+     * default.
+     */
+    private var lastA11yConnected: Boolean? = null
+
+    /**
      * Re-reads readiness and, the moment accessibility just became available,
      * arms immediately — no separate tap. Enabling accessibility in system
      * settings is the one step Android will not let an app do for itself; once
      * the user has done that one unavoidable thing, everything on this app's
      * side of the boundary should happen without asking for another tap.
      *
+     * Gated on the false→true edge of [a11yConnected], not merely its current
+     * value: this runs on every `ON_RESUME`, including the one right after
+     * the notification's Disarm action (or the in-app one) stops the service
+     * — accessibility is still connected then, only [serviceRunning] changed.
+     * Auto-arming on the level rather than the edge would silently undo that
+     * disarm the moment the app next resumed.
+     *
      * Called from [StatusScreen] on every `ON_RESUME` — the moment the user
      * returns from the settings screen this app sent them to.
      */
     fun refreshStatus() {
         _statusTick.value++
-        if (a11yConnected && !serviceRunning) startService()
+        val justConnected = a11yConnected && lastA11yConnected == false
+        lastA11yConnected = a11yConnected
+        if (justConnected && !serviceRunning) startService()
     }
 
     /**
