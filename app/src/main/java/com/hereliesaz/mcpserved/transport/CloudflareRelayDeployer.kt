@@ -148,7 +148,11 @@ class CloudflareRelayDeployer(private val appContext: Context) {
             })
             put("migrations", buildJsonObject {
                 put("new_tag", "v1")
-                put("new_classes", buildJsonArray { add(JsonPrimitive("RelayRoom")) })
+                // Free-plan accounts reject a `new_classes` (KV-backed) migration
+                // with HTTP 403 (error 10097) — SQLite-backed storage is required
+                // there, and RelayRoom doesn't touch `this.storage` at all, so
+                // this backend costs nothing either way.
+                put("new_sqlite_classes", buildJsonArray { add(JsonPrimitive("RelayRoom")) })
             })
         }
 

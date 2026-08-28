@@ -5,6 +5,8 @@ import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.IOException
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Runs Cloudflare's `cloudflared` as a subprocess in "Quick Tunnel" mode
@@ -62,13 +64,23 @@ class CloudflareTunnel(private val appContext: Context) {
                 .redirectErrorStream(true)
                 .start()
             process = proc
-            val url = awaitUrl(proc)
-            if (url != null) {
-                Result.Success(url)
-            } else {
-                proc.destroy()
-                process = null
-                Result.Failure("cloudflared didn't report a tunnel URL within ${TIMEOUT_MS / 1000}s.")
+            when (val outcome = awaitUrl(proc)) {
+                is AwaitOutcome.Found -> Result.Success(outcome.url)
+                is AwaitOutcome.TimedOut -> {
+                    proc.destroy()
+                    process = null
+                    Result.Failure(
+                        "cloudflared didn't report a tunnel URL within ${TIMEOUT_MS / 1000}s." +
+                            outcome.lastLines.asDiagnostic(),
+                    )
+                }
+                is AwaitOutcome.ProcessExited -> {
+                    process = null
+                    Result.Failure(
+                        "cloudflared exited before reporting a tunnel URL." +
+                            outcome.lastLines.asDiagnostic(),
+                    )
+                }
             }
         }.getOrElse { e ->
             Log.w(TAG, "cloudflared failed to start", e)
@@ -82,22 +94,38 @@ class CloudflareTunnel(private val appContext: Context) {
         process = null
     }
 
+    private sealed class AwaitOutcome {
+        data class Found(val url: String) : AwaitOutcome()
+        data class TimedOut(val lastLines: List<String>) : AwaitOutcome()
+        data class ProcessExited(val lastLines: List<String>) : AwaitOutcome()
+    }
+
     /**
      * Reads `cloudflared`'s combined stdout/stderr line by line for its
      * announced tunnel URL. `readLine()` itself can't be interrupted
      * cleanly mid-block on the JVM, so the bound here is a wall-clock
      * deadline checked between lines, backstopped by destroying the process
      * (which closes the pipe and unblocks the read) if it's ever exceeded.
+     *
+     * On failure, the last few output lines ride along in [AwaitOutcome] so
+     * the caller can put them straight in the error message — this screen's
+     * whole premise is "no computer needed," so `adb logcat` isn't a real
+     * diagnostic path for whoever hits this; the lines are still logged at
+     * DEBUG too, for the rare case a computer is around.
      */
-    private fun awaitUrl(proc: Process): String? {
+    private fun awaitUrl(proc: Process): AwaitOutcome {
         val deadline = System.currentTimeMillis() + TIMEOUT_MS
+        val timedOut = AtomicBoolean(false)
         val watchdog = Thread {
             try {
                 while (System.currentTimeMillis() < deadline) {
                     if (process !== proc) return@Thread
                     Thread.sleep(500)
                 }
-                if (process === proc) proc.destroy()
+                if (process === proc) {
+                    timedOut.set(true)
+                    proc.destroy()
+                }
             } catch (_: InterruptedException) {
                 // The normal shutdown path: awaitUrl() found a URL (or the
                 // process ended) and interrupts this thread in its `finally`
@@ -105,17 +133,26 @@ class CloudflareTunnel(private val appContext: Context) {
             }
         }.apply { isDaemon = true; start() }
 
+        val lastLines = ArrayDeque<String>()
         try {
             proc.inputStream.bufferedReader().use { reader ->
                 while (true) {
-                    val line = reader.readLine() ?: return null
-                    // cloudflared's own output is the only diagnostic available when
-                    // this fails — there is no other source. Logged at DEBUG rather
-                    // than surfaced in-app: it's expected to be read via `adb logcat`
-                    // by whoever is chasing down why a tunnel didn't come up, not
-                    // shown to every operator on every successful run.
+                    val line = try {
+                        reader.readLine()
+                    } catch (_: IOException) {
+                        // The watchdog's proc.destroy() closes this pipe out from
+                        // under a blocked readLine() — surfaces as an IOException
+                        // on some platforms, a plain EOF (null) on others.
+                        null
+                    } ?: return if (timedOut.get()) {
+                        AwaitOutcome.TimedOut(lastLines.toList())
+                    } else {
+                        AwaitOutcome.ProcessExited(lastLines.toList())
+                    }
                     Log.d(TAG, "cloudflared: $line")
-                    tunnelUrlIn(line)?.let { return it }
+                    lastLines.addLast(line)
+                    if (lastLines.size > MAX_DIAGNOSTIC_LINES) lastLines.removeFirst()
+                    tunnelUrlIn(line)?.let { return AwaitOutcome.Found(it) }
                 }
             }
         } finally {
@@ -127,7 +164,12 @@ class CloudflareTunnel(private val appContext: Context) {
         const val TAG = "CloudflareTunnel"
         const val BINARY_NAME = "libcloudflared.so"
         const val TIMEOUT_MS = 30_000L
+        const val MAX_DIAGNOSTIC_LINES = 5
         val URL_PATTERN = Regex("""https://[a-zA-Z0-9-]+\.trycloudflare\.com""", RegexOption.IGNORE_CASE)
+
+        /** Formats captured `cloudflared` output as a suffix for an error message, or "" if none was captured. */
+        internal fun List<String>.asDiagnostic(): String =
+            if (isEmpty()) "" else "\n\ncloudflared said:\n" + joinToString("\n") { it.take(200) }
 
         /**
          * The real tunnel URL in one line of `cloudflared`'s output, if any —
