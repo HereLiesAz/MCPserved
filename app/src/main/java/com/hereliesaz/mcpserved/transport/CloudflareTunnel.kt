@@ -45,28 +45,42 @@ import java.util.concurrent.atomic.AtomicBoolean
  * `GOOS=android CGO_ENABLED=1` and the Android NDK's clang as `CC` — the
  * combination that makes Go's resolver call Bionic's `getaddrinfo()` instead,
  * which correctly reaches Android's own DNS stack from inside the sandbox.
- * Confirmed structurally (this build environment has no Android device or
- * emulator to run the result on): `readelf -d` shows `NEEDED liblog.so
- * libdl.so libc.so` and `INTERP /system/bin/linker[64]` where the official
- * binary had no dynamic section at all, and `go tool nm` shows
- * `net.cgoLookupHost`/`net.cgoLookupIP` (absent from a `CGO_ENABLED=0` build)
- * importing `getaddrinfo@LIBC`. The trade made here: no longer a byte-for-byte
+ * Confirmed structurally (`readelf -d` shows `NEEDED liblog.so libdl.so
+ * libc.so` and `INTERP /system/bin/linker[64]` where the official binary had
+ * no dynamic section at all; `go tool nm` shows `net.cgoLookupHost`/
+ * `net.cgoLookupIP`, absent from a `CGO_ENABLED=0` build, importing
+ * `getaddrinfo@LIBC`). A real device is what caught the missing
+ * `-buildmode=pie` below in the first place (Android refuses to even launch
+ * a non-PIE executable); once that was fixed the binary at least starts —
+ * whether DNS resolution itself now works is still awaiting on-device
+ * confirmation. The trade made here: no longer a byte-for-byte
  * copy of what Cloudflare itself publishes and signs, in exchange for Quick
  * Tunnel actually working on-device — same upstream source, same version,
- * different build flags. To rebuild (e.g. `cloudflared` needs updating), from
- * a checkout of `github.com/cloudflare/cloudflared` at the desired release
- * tag/commit, once per ABI:
+ * different build flags.
+ *
+ * The first cut of this rebuild used `-buildmode=exe`, which is the right
+ * default for `GOOS=linux` but produces a plain `ET_EXEC` binary rather than
+ * `ET_DYN` — and Android has refused to run non-PIE executables since
+ * Lollipop, so it failed on a real device with `Android only supports
+ * position-independent executables (-fPIE)` even though every structural
+ * check above passed. `-buildmode=pie` (below) is not optional here.
+ *
+ * To rebuild (e.g. `cloudflared` needs updating), from a checkout of
+ * `github.com/cloudflare/cloudflared` at the desired release tag/commit,
+ * once per ABI:
  * ```
  * CGO_ENABLED=1 GOOS=android GOARCH=arm64 \
  *   CC=$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android29-clang \
- *   go build -o libcloudflared.so ./cmd/cloudflared   # -> jniLibs/arm64-v8a/
+ *   go build -buildmode=pie -o libcloudflared.so ./cmd/cloudflared   # -> jniLibs/arm64-v8a/
  *
  * CGO_ENABLED=1 GOOS=android GOARCH=arm GOARM=7 \
  *   CC=$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/armv7a-linux-androideabi29-clang \
- *   go build -o libcloudflared.so ./cmd/cloudflared   # -> jniLibs/armeabi-v7a/
+ *   go build -buildmode=pie -o libcloudflared.so ./cmd/cloudflared   # -> jniLibs/armeabi-v7a/
  * ```
  * (`29` matches this module's `minSdk`; bump both together if that changes.)
- * Check whether the DNS resolver situation upstream (or in Go's `net`
+ * `readelf -h libcloudflared.so | grep Type` should read `DYN (Position-
+ * Independent Executable file)` for either ABI — `EXEC` means the `-buildmode`
+ * flag was dropped. Check whether the DNS resolver situation upstream (or in Go's `net`
  * package for `GOOS=android`) has changed before assuming this reasoning
  * still holds.
  *
