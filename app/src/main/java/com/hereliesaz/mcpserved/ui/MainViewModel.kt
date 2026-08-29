@@ -237,6 +237,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /**
+     * The persisted token, for the screen to seed its text field with on entry —
+     * otherwise every save is invisible: it lands correctly in
+     * `EncryptedSharedPreferences` on every keystroke, but a field that always
+     * starts blank looks exactly like it never saved.
+     */
+    fun currentCloudflareApiToken(): String = cloudflareToken.value
+
+    /**
      * Deploys `relay/cloudflare/worker.js` (bundled as an asset) to the
      * operator's own Cloudflare account and, on success, fills in [relayUrl]
      * with the resulting address — no separate "now paste the URL" step.

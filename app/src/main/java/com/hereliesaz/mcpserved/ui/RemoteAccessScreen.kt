@@ -64,7 +64,7 @@ fun RemoteAccessScreen(vm: MainViewModel) {
     val upnpMapping by vm.upnpMapping.collectAsState()
     val ipv6Enabled by vm.ipv6Enabled.collectAsState()
     val cloudflareDeployState by vm.cloudflareDeployState.collectAsState()
-    var cloudflareTokenInput by remember { mutableStateOf("") }
+    var cloudflareTokenInput by remember { mutableStateOf(vm.currentCloudflareApiToken()) }
     val tunnelState by vm.tunnelState.collectAsState()
     val hasAcceptedDisclosure by vm.hasAcceptedRemoteAccessDisclosure.collectAsState()
     val context = LocalContext.current

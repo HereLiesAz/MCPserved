@@ -132,9 +132,21 @@ class CloudflareRelayDeployer(private val appContext: Context) {
         return candidate
     }
 
+    /** True if `$SCRIPT_NAME` has already been deployed to this account before. */
+    private fun scriptExists(token: String, accountId: String): Boolean {
+        val req = authed("$API_BASE/accounts/$accountId/workers/scripts/$SCRIPT_NAME/settings", token).get().build()
+        client.newCall(req).execute().use { return it.isSuccessful }
+    }
+
     /** Uploads the Worker module + its Durable Object binding. Null on success, else an error string. */
     private fun uploadScript(token: String, accountId: String): String? {
         val source = appContext.assets.open(WORKER_ASSET).bufferedReader().use { it.readText() }
+        // A Durable Object migration tag can only ever be applied once — Cloudflare
+        // rejects a redeploy that resends "new_tag": "v1" with HTTP 412 (error
+        // 10079), since the account's actual state has already moved past "" to
+        // "v1". So this is included only on the script's first-ever deploy; a
+        // redeploy just updates code/bindings, exactly like `wrangler deploy`.
+        val firstDeploy = !scriptExists(token, accountId)
 
         val metadata = buildJsonObject {
             put("main_module", "worker.js")
@@ -146,14 +158,16 @@ class CloudflareRelayDeployer(private val appContext: Context) {
                     put("class_name", "RelayRoom")
                 })
             })
-            put("migrations", buildJsonObject {
-                put("new_tag", "v1")
-                // Free-plan accounts reject a `new_classes` (KV-backed) migration
-                // with HTTP 403 (error 10097) — SQLite-backed storage is required
-                // there, and RelayRoom doesn't touch `this.storage` at all, so
-                // this backend costs nothing either way.
-                put("new_sqlite_classes", buildJsonArray { add(JsonPrimitive("RelayRoom")) })
-            })
+            if (firstDeploy) {
+                put("migrations", buildJsonObject {
+                    put("new_tag", "v1")
+                    // Free-plan accounts reject a `new_classes` (KV-backed) migration
+                    // with HTTP 403 (error 10097) — SQLite-backed storage is required
+                    // there, and RelayRoom doesn't touch `this.storage` at all, so
+                    // this backend costs nothing either way.
+                    put("new_sqlite_classes", buildJsonArray { add(JsonPrimitive("RelayRoom")) })
+                })
+            }
         }
 
         val multipart = MultipartBody.Builder().setType(MultipartBody.FORM)
