@@ -30,6 +30,46 @@ import java.util.concurrent.atomic.AtomicBoolean
  * than crashing, and the caller should say so and point at the manual
  * `wrangler`/Cloudflare-dashboard paths in `relay/cloudflare/README.md`.
  *
+ * **Build provenance — not Cloudflare's official release binary.** Cloudflare
+ * publishes `cloudflared` for `linux/arm64` built with `CGO_ENABLED=0`
+ * (`GOOS=linux`, pure Go, no cgo) — that official binary is what shipped here
+ * until this comment. It runs fine as an Android subprocess, but Go's pure-Go
+ * DNS resolver expects `/etc/resolv.conf`, which doesn't exist inside an
+ * Android app's sandbox; lacking it, the resolver falls back to querying
+ * `127.0.0.1:53`/`[::1]:53`, nothing answers, and every Quick Tunnel attempt
+ * fails at the DNS lookup for `api.trycloudflare.com`, surfaced by [awaitUrl]'s
+ * diagnostics as `dial tcp: lookup api.trycloudflare.com ...: connection
+ * refused`. The two `.so` files here are instead built from Cloudflare's own
+ * `cloudflared` source, at the exact commit the official 2026.8.2 release was
+ * cut from (`733bfb939963e150dcf5c4faddb1603f744fbc98`), with
+ * `GOOS=android CGO_ENABLED=1` and the Android NDK's clang as `CC` — the
+ * combination that makes Go's resolver call Bionic's `getaddrinfo()` instead,
+ * which correctly reaches Android's own DNS stack from inside the sandbox.
+ * Confirmed structurally (this build environment has no Android device or
+ * emulator to run the result on): `readelf -d` shows `NEEDED liblog.so
+ * libdl.so libc.so` and `INTERP /system/bin/linker[64]` where the official
+ * binary had no dynamic section at all, and `go tool nm` shows
+ * `net.cgoLookupHost`/`net.cgoLookupIP` (absent from a `CGO_ENABLED=0` build)
+ * importing `getaddrinfo@LIBC`. The trade made here: no longer a byte-for-byte
+ * copy of what Cloudflare itself publishes and signs, in exchange for Quick
+ * Tunnel actually working on-device — same upstream source, same version,
+ * different build flags. To rebuild (e.g. `cloudflared` needs updating), from
+ * a checkout of `github.com/cloudflare/cloudflared` at the desired release
+ * tag/commit, once per ABI:
+ * ```
+ * CGO_ENABLED=1 GOOS=android GOARCH=arm64 \
+ *   CC=$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android29-clang \
+ *   go build -o libcloudflared.so ./cmd/cloudflared   # -> jniLibs/arm64-v8a/
+ *
+ * CGO_ENABLED=1 GOOS=android GOARCH=arm GOARM=7 \
+ *   CC=$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/armv7a-linux-androideabi29-clang \
+ *   go build -o libcloudflared.so ./cmd/cloudflared   # -> jniLibs/armeabi-v7a/
+ * ```
+ * (`29` matches this module's `minSdk`; bump both together if that changes.)
+ * Check whether the DNS resolver situation upstream (or in Go's `net`
+ * package for `GOOS=android`) has changed before assuming this reasoning
+ * still holds.
+ *
  * **Exercised against a running binary on real hardware** — and that surfaced
  * a real bug, since fixed: `cloudflared` calls Cloudflare's own control-plane
  * API at `https://api.trycloudflare.com` to provision the tunnel, and that

@@ -223,9 +223,9 @@ android {
             //     and silently made this file invisible to File.exists() on device.
             //   - Excluded from AGP's native-library symbol stripping, since it is not
             //     a library AGP's strip tooling was ever meant to touch, and there is no
-            //     way to confirm a stripped copy still behaves like the binary actually
-            //     downloaded, checksummed, and verified statically linked against
-            //     Cloudflare's official release.
+            //     way to confirm a stripped copy still behaves like the binary built and
+            //     verified from Cloudflare's own source at the exact release commit (see
+            //     the build provenance note on CloudflareTunnel).
             useLegacyPackaging = true
             keepDebugSymbols += "**/libcloudflared.so"
         }
