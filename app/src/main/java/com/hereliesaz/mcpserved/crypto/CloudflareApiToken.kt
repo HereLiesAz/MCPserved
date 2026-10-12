@@ -33,9 +33,27 @@ class CloudflareApiToken(ctx: Context) {
         get() = prefs.getString(KEY_TOKEN, "") ?: ""
         set(value) = prefs.edit().putString(KEY_TOKEN, value.trim()).apply()
 
+    /**
+     * The run token for a provisioned named tunnel
+     * ([com.hereliesaz.mcpserved.transport.CloudflareNamedTunnel]). Also a real
+     * secret — it authorizes running that tunnel — so it lives in the same
+     * encrypted store, and lets the stable address come back across sessions
+     * without re-provisioning.
+     */
+    var namedTunnelRunToken: String
+        get() = prefs.getString(KEY_RUN_TOKEN, "") ?: ""
+        set(value) = prefs.edit().putString(KEY_RUN_TOKEN, value.trim()).apply()
+
+    /** The hostname that named tunnel serves (e.g. `mcp.azphalt.store`). Not secret, kept here for cohesion. */
+    var namedTunnelHostname: String
+        get() = prefs.getString(KEY_HOSTNAME, "") ?: ""
+        set(value) = prefs.edit().putString(KEY_HOSTNAME, value.trim()).apply()
+
     fun clear() = prefs.edit().remove(KEY_TOKEN).apply()
 
     private companion object {
         const val KEY_TOKEN = "api_token"
+        const val KEY_RUN_TOKEN = "named_tunnel_run_token"
+        const val KEY_HOSTNAME = "named_tunnel_hostname"
     }
 }
