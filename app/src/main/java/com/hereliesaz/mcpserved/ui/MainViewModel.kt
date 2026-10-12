@@ -47,9 +47,6 @@ private const val SHIZUKU_REQUEST_CODE = 7301
 private const val CONNECTING_POLL_INTERVAL_MS = 150L
 private const val CONNECTING_POLL_ATTEMPTS = 20
 
-/** The hostname the named ("stable address") tunnel serves — a no-desktop MCP connector. */
-private const val STABLE_HOSTNAME = "mcp.azphalt.store"
-
 /**
  * State for the whole application, which is small enough not to want more.
  *
@@ -237,8 +234,18 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     // ---- A stable address via a named Cloudflare tunnel (no desktop) ------
 
-    /** The hostname the named tunnel serves — a no-desktop remote MCP connector. */
-    val stableHostname: String = STABLE_HOSTNAME
+    /**
+     * The hostname this device's named tunnel serves — a no-desktop remote MCP
+     * connector. Operator-supplied: a hostname in a Cloudflare zone on the
+     * operator's *own* account, so the traffic is theirs end to end and the app
+     * ships with no shared domain. Blank until entered.
+     */
+    fun currentNamedTunnelHostname(): String = cloudflareToken.namedTunnelHostname
+
+    /** Persists the operator's chosen hostname as they type it. */
+    fun setNamedTunnelHostname(host: String) {
+        cloudflareToken.namedTunnelHostname = host
+    }
 
     /** Progress of provisioning the named tunnel (the one-time API setup). */
     private val _stableAddressState = MutableStateFlow<DeployState>(DeployState.Idle)
@@ -254,13 +261,20 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     /**
      * One tap for a stable, no-desktop address. Arms the service (so McpServer is
      * bound), then: if a tunnel is already provisioned, just runs it; otherwise
-     * provisions one via the Cloudflare API (create tunnel + ingress + DNS) using
-     * the stored API token, persists the run token, and runs it. The resulting
-     * `https://$stableHostname/mcp` + bearer is a remote MCP connector a cloud
-     * host registers directly.
+     * provisions one via the Cloudflare API (create tunnel + ingress + DNS) for
+     * the operator's own [currentNamedTunnelHostname], persists the run token,
+     * and runs it. The resulting `https://<hostname>/mcp` + bearer is a remote
+     * MCP connector a cloud host registers directly.
      */
     fun setUpStableAddress() {
         viewModelScope.launch {
+            val host = cloudflareToken.namedTunnelHostname.trim()
+            if (host.isBlank()) {
+                _stableAddressState.value = DeployState.Error(
+                    "Enter your own hostname first — a subdomain in a Cloudflare zone on your account (e.g. mcp.yourdomain.com)."
+                )
+                return@launch
+            }
             if (!serviceRunning) {
                 startService()
                 for (attempt in 1..CONNECTING_POLL_ATTEMPTS) {
@@ -270,10 +284,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 }
             }
             val storedToken = cloudflareToken.namedTunnelRunToken
-            val storedHost = cloudflareToken.namedTunnelHostname.ifBlank { STABLE_HOSTNAME }
             if (storedToken.isNotBlank()) {
                 if (serviceRunning) {
-                    com.hereliesaz.mcpserved.service.ControlService.requestStartNamedTunnel(storedToken, storedHost)
+                    com.hereliesaz.mcpserved.service.ControlService.requestStartNamedTunnel(storedToken, host)
                 }
                 return@launch
             }
@@ -283,7 +296,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 return@launch
             }
             _stableAddressState.value = DeployState.Deploying
-            when (val r = namedTunnelDeployer.provision(apiToken, STABLE_HOSTNAME)) {
+            when (val r = namedTunnelDeployer.provision(apiToken, host)) {
                 is com.hereliesaz.mcpserved.transport.CloudflareNamedTunnel.Result.Success -> {
                     cloudflareToken.namedTunnelRunToken = r.runToken
                     cloudflareToken.namedTunnelHostname = r.hostname
@@ -340,13 +353,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             when (val result = cloudflareDeployer.deploy(token)) {
                 is com.hereliesaz.mcpserved.transport.CloudflareRelayDeployer.Result.Success -> {
                     setRelayUrl(result.url)
-                    val note = buildString {
-                        if (result.customDomains.isNotEmpty()) {
-                            append("Custom domains attached: ${result.customDomains.joinToString()}.")
-                        }
-                        result.notes.forEach { if (isNotEmpty()) append(' '); append(it).append('.') }
-                    }.trim().ifBlank { null }
-                    _cloudflareDeployState.value = DeployState.Done(result.url, note)
+                    _cloudflareDeployState.value = DeployState.Done(result.url)
                 }
                 is com.hereliesaz.mcpserved.transport.CloudflareRelayDeployer.Result.Failure -> {
                     _cloudflareDeployState.value = DeployState.Error(result.message)

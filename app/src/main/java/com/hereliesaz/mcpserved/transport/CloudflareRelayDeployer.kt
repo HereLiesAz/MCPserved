@@ -44,18 +44,12 @@ class CloudflareRelayDeployer(private val appContext: Context) {
 
     sealed class Result {
         /**
-         * [url] is the always-reachable `*.workers.dev` URL — safe to use as the
-         * Relay URL immediately. [customDomains] are the branded hosts that were
-         * successfully attached (reachable once their DNS/cert settles), and
-         * [notes] explains any that could not be (zone not on this account, or
-         * the token lacking Zone\:Read). Custom domains are best-effort: a failure
-         * to attach one never fails the deploy.
+         * [url] is the account's own `*.workers.dev` URL — the relay address. A
+         * custom domain on top is the operator's own choice (their dashboard or
+         * wrangler.toml), not something this app attaches, so nothing personal is
+         * baked into the shared build.
          */
-        data class Success(
-            val url: String,
-            val customDomains: List<String> = emptyList(),
-            val notes: List<String> = emptyList(),
-        ) : Result()
+        data class Success(val url: String) : Result()
         data class Failure(val message: String) : Result()
     }
 
@@ -67,11 +61,9 @@ class CloudflareRelayDeployer(private val appContext: Context) {
 
     /**
      * Runs the whole deploy: find an account, make sure it has a workers.dev
-     * subdomain, upload the script with its Durable Object binding, expose
-     * it at that subdomain, and attach the branded [CUSTOM_DOMAINS] best-effort.
-     * Returns the workers.dev `https://` URL, ready to drop straight into the
-     * Relay URL field, plus any custom domains attached and notes on those that
-     * weren't.
+     * subdomain, upload the script with its Durable Object binding, and expose
+     * it at that subdomain. Returns the workers.dev `https://` URL, ready to
+     * drop straight into the Relay URL field.
      */
     suspend fun deploy(apiToken: String): Result = withContext(Dispatchers.IO) {
         if (apiToken.isBlank()) return@withContext Result.Failure("No API token.")
@@ -89,13 +81,7 @@ class CloudflareRelayDeployer(private val appContext: Context) {
                 )
             uploadScript(apiToken, accountId)?.let { return@withContext Result.Failure(it) }
             enableSubdomainRoute(apiToken, accountId)?.let { return@withContext Result.Failure(it) }
-            // Branded hosts, best-effort: mirrors the `custom_domain` routes in
-            // relay/cloudflare/wrangler.toml so a phone deploy matches `wrangler
-            // deploy`. The workers.dev URL above already works, so a domain that
-            // can't be attached (zone absent, or token without Zone:Read) is a
-            // note, never a failure.
-            val (customDomains, notes) = attachCustomDomains(apiToken, accountId)
-            Result.Success("https://$SCRIPT_NAME.$subdomain.workers.dev", customDomains, notes)
+            Result.Success("https://$SCRIPT_NAME.$subdomain.workers.dev")
         }.getOrElse { e ->
             Result.Failure(
                 when (e) {
@@ -203,57 +189,6 @@ class CloudflareRelayDeployer(private val appContext: Context) {
         }
     }
 
-    /**
-     * Attaches each [CUSTOM_DOMAINS] host to the Worker, best-effort. Returns the
-     * hosts attached and a note for each that was skipped. Cloudflare provisions
-     * the proxied DNS record and TLS cert for a custom domain, so the token needs
-     * Zone\:Read plus edit rights on the zone; a host whose zone isn't on this
-     * account, or that the token can't see, is reported, not fatal.
-     */
-    private fun attachCustomDomains(token: String, accountId: String): Pair<List<String>, List<String>> {
-        val attached = mutableListOf<String>()
-        val notes = mutableListOf<String>()
-        for (host in CUSTOM_DOMAINS) {
-            val zoneId = findZoneId(token, host)
-            if (zoneId == null) {
-                notes += "$host: no matching zone on this account (add the zone, or grant the token Zone:Read, then redeploy)"
-                continue
-            }
-            val body = buildJsonObject {
-                put("environment", "production")
-                put("hostname", host)
-                put("service", SCRIPT_NAME)
-                put("zone_id", zoneId)
-            }.toString().toRequestBody(JSON_MEDIA_TYPE)
-            val req = authed("$API_BASE/accounts/$accountId/workers/domains", token).put(body).build()
-            client.newCall(req).execute().use { resp ->
-                if (resp.isSuccessful) attached += host
-                else notes += "$host: Cloudflare rejected the custom domain (HTTP ${resp.code})"
-            }
-        }
-        return attached to notes
-    }
-
-    /**
-     * The id of the zone that owns [hostname] — the longest zone name the token
-     * can see that the hostname equals or ends with (`.<zone>`), so a multi-label
-     * public suffix resolves correctly. Null if none matches or the list can't be
-     * read (e.g. the token lacks Zone\:Read).
-     */
-    private fun findZoneId(token: String, hostname: String): String? {
-        val req = authed("$API_BASE/zones?per_page=50", token).get().build()
-        client.newCall(req).execute().use { resp ->
-            val results = (bodyOf(resp)?.get("result") as? JsonArray) ?: return null
-            return results.mapNotNull { it as? JsonObject }
-                .mapNotNull { z ->
-                    val name = z["name"]?.jsonPrimitive?.content ?: return@mapNotNull null
-                    val id = z["id"]?.jsonPrimitive?.content ?: return@mapNotNull null
-                    if (hostname == name || hostname.endsWith(".$name")) name to id else null
-                }
-                .maxByOrNull { it.first.length }?.second
-        }
-    }
-
     private fun enableSubdomainRoute(token: String, accountId: String): String? {
         val body = buildJsonObject {
             put("enabled", true)
@@ -273,9 +208,6 @@ class CloudflareRelayDeployer(private val appContext: Context) {
         const val API_BASE = "https://api.cloudflare.com/client/v4"
         const val SCRIPT_NAME = "mcpserved-relay"
         const val WORKER_ASSET = "cloudflare_relay_worker.js"
-
-        /** Branded hosts attached to the Worker; mirror relay/cloudflare/wrangler.toml. */
-        val CUSTOM_DOMAINS = listOf("mcp.azphalt.store", "mcpserved.hereliesaz.com")
         val JSON_MEDIA_TYPE = "application/json".toMediaType()
         val JS_MODULE_MEDIA_TYPE = "application/javascript+module".toMediaType()
     }
