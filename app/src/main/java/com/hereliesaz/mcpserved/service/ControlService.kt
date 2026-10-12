@@ -141,6 +141,33 @@ class ControlService : Service() {
             }
             svc.stopTunnel()
         }
+
+        /**
+         * State of the persistent **named** tunnel (stable hostname), separate
+         * from the Quick Tunnel above because the two have different lifecycles:
+         * the named tunnel is meant to come back across sessions from a stored
+         * run token, the Quick Tunnel never does.
+         */
+        private val _namedTunnelState = MutableStateFlow<TunnelState>(TunnelState.Idle)
+        val namedTunnelState: StateFlow<TunnelState> = _namedTunnelState
+
+        fun requestStartNamedTunnel(runToken: String, hostname: String) {
+            val svc = instance
+            if (svc == null) {
+                _namedTunnelState.value = TunnelState.Error("Not connected yet — finish the Status tab first.")
+                return
+            }
+            svc.startNamedTunnel(runToken, hostname)
+        }
+
+        fun requestStopNamedTunnel() {
+            val svc = instance
+            if (svc == null) {
+                _namedTunnelState.value = TunnelState.Idle
+                return
+            }
+            svc.stopNamedTunnel()
+        }
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -177,6 +204,7 @@ class ControlService : Service() {
     private var upnpMapper: UpnpPortMapper? = null
     private var upnpJob: Job? = null
     private var cloudflareTunnel: CloudflareTunnel? = null
+    private var namedTunnel: CloudflareTunnel? = null
 
     private var wakeLock: PowerManager.WakeLock? = null
 
@@ -379,6 +407,30 @@ class ControlService : Service() {
         cloudflareTunnel?.stop()
         cloudflareTunnel = null
         _tunnelState.value = TunnelState.Idle
+    }
+
+    /**
+     * Runs the persistent named tunnel from a provisioned run token
+     * ([CloudflareNamedTunnel]). Same McpServer target as [startTunnel], but the
+     * address is the stable [hostname] rather than a session-scoped one.
+     */
+    fun startNamedTunnel(runToken: String, hostname: String) {
+        if (_namedTunnelState.value is TunnelState.Starting || _namedTunnelState.value is TunnelState.Running) return
+        _namedTunnelState.value = TunnelState.Starting
+        val tunnel = CloudflareTunnel(applicationContext).also { namedTunnel = it }
+        scope.launch {
+            _namedTunnelState.value = when (val result = tunnel.startNamed(runToken, hostname)) {
+                is CloudflareTunnel.Result.Success -> TunnelState.Running(result.url)
+                is CloudflareTunnel.Result.Failure -> TunnelState.Error(result.message)
+            }
+        }
+    }
+
+    /** Kills the named tunnel, if running. The stable address stops answering until restarted. */
+    fun stopNamedTunnel() {
+        namedTunnel?.stop()
+        namedTunnel = null
+        _namedTunnelState.value = TunnelState.Idle
     }
 
     /** True once the operator has granted the MediaProjection consent dialog. */

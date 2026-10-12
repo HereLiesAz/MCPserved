@@ -47,6 +47,9 @@ private const val SHIZUKU_REQUEST_CODE = 7301
 private const val CONNECTING_POLL_INTERVAL_MS = 150L
 private const val CONNECTING_POLL_ATTEMPTS = 20
 
+/** The hostname the named ("stable address") tunnel serves — a no-desktop MCP connector. */
+private const val STABLE_HOSTNAME = "mcp.azphalt.store"
+
 /**
  * State for the whole application, which is small enough not to want more.
  *
@@ -223,12 +226,84 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     private val cloudflareToken = com.hereliesaz.mcpserved.crypto.CloudflareApiToken(app)
     private val cloudflareDeployer = com.hereliesaz.mcpserved.transport.CloudflareRelayDeployer(app)
+    private val namedTunnelDeployer = com.hereliesaz.mcpserved.transport.CloudflareNamedTunnel(app)
 
     sealed class DeployState {
         object Idle : DeployState()
         object Deploying : DeployState()
         data class Done(val url: String, val note: String? = null) : DeployState()
         data class Error(val message: String) : DeployState()
+    }
+
+    // ---- A stable address via a named Cloudflare tunnel (no desktop) ------
+
+    /** The hostname the named tunnel serves — a no-desktop remote MCP connector. */
+    val stableHostname: String = STABLE_HOSTNAME
+
+    /** Progress of provisioning the named tunnel (the one-time API setup). */
+    private val _stableAddressState = MutableStateFlow<DeployState>(DeployState.Idle)
+    val stableAddressState: StateFlow<DeployState> = _stableAddressState
+
+    /** Whether a named tunnel is already provisioned (a run token is stored). */
+    val stableAddressProvisioned: Boolean get() = cloudflareToken.namedTunnelRunToken.isNotBlank()
+
+    /** Running state of the named tunnel itself (re-exported from the service). */
+    val namedTunnelState: StateFlow<com.hereliesaz.mcpserved.service.ControlService.Companion.TunnelState> =
+        com.hereliesaz.mcpserved.service.ControlService.namedTunnelState
+
+    /**
+     * One tap for a stable, no-desktop address. Arms the service (so McpServer is
+     * bound), then: if a tunnel is already provisioned, just runs it; otherwise
+     * provisions one via the Cloudflare API (create tunnel + ingress + DNS) using
+     * the stored API token, persists the run token, and runs it. The resulting
+     * `https://$stableHostname/mcp` + bearer is a remote MCP connector a cloud
+     * host registers directly.
+     */
+    fun setUpStableAddress() {
+        viewModelScope.launch {
+            if (!serviceRunning) {
+                startService()
+                for (attempt in 1..CONNECTING_POLL_ATTEMPTS) {
+                    if (serviceRunning) break
+                    delay(CONNECTING_POLL_INTERVAL_MS)
+                    _statusTick.value++
+                }
+            }
+            val storedToken = cloudflareToken.namedTunnelRunToken
+            val storedHost = cloudflareToken.namedTunnelHostname.ifBlank { STABLE_HOSTNAME }
+            if (storedToken.isNotBlank()) {
+                if (serviceRunning) {
+                    com.hereliesaz.mcpserved.service.ControlService.requestStartNamedTunnel(storedToken, storedHost)
+                }
+                return@launch
+            }
+            val apiToken = cloudflareToken.value
+            if (apiToken.isBlank()) {
+                _stableAddressState.value = DeployState.Error("Paste a Cloudflare API token first (under Deploy your own relay).")
+                return@launch
+            }
+            _stableAddressState.value = DeployState.Deploying
+            when (val r = namedTunnelDeployer.provision(apiToken, STABLE_HOSTNAME)) {
+                is com.hereliesaz.mcpserved.transport.CloudflareNamedTunnel.Result.Success -> {
+                    cloudflareToken.namedTunnelRunToken = r.runToken
+                    cloudflareToken.namedTunnelHostname = r.hostname
+                    val note = buildString { r.notes.forEach { if (isNotEmpty()) append(' '); append(it).append('.') } }
+                        .trim().ifBlank { null }
+                    _stableAddressState.value = DeployState.Done("https://${r.hostname}", note)
+                    if (serviceRunning) {
+                        com.hereliesaz.mcpserved.service.ControlService.requestStartNamedTunnel(r.runToken, r.hostname)
+                    }
+                }
+                is com.hereliesaz.mcpserved.transport.CloudflareNamedTunnel.Result.Failure -> {
+                    _stableAddressState.value = DeployState.Error(r.message)
+                }
+            }
+        }
+    }
+
+    /** Stops the named tunnel. The stable address stops answering until started again. */
+    fun stopStableAddress() {
+        com.hereliesaz.mcpserved.service.ControlService.requestStopNamedTunnel()
     }
 
     private val _cloudflareDeployState = MutableStateFlow<DeployState>(DeployState.Idle)

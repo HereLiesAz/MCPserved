@@ -118,29 +118,54 @@ class CloudflareTunnel(private val appContext: Context) {
                 .redirectErrorStream(true)
                 .start()
             process = proc
-            when (val outcome = awaitUrl(proc)) {
-                is AwaitOutcome.Found -> Result.Success(outcome.url)
-                is AwaitOutcome.TimedOut -> {
-                    proc.destroy()
-                    process = null
-                    Result.Failure(
-                        "cloudflared didn't report a tunnel URL within ${TIMEOUT_MS / 1000}s." +
-                            outcome.lastLines.asDiagnostic(),
-                    )
-                }
-                is AwaitOutcome.ProcessExited -> {
-                    process = null
-                    Result.Failure(
-                        "cloudflared exited before reporting a tunnel URL." +
-                            outcome.lastLines.asDiagnostic(),
-                    )
-                }
-            }
+            awaitOutcome(proc, "didn't report a tunnel URL", ::tunnelUrlIn)
         }.getOrElse { e ->
             Log.w(TAG, "cloudflared failed to start", e)
             Result.Failure("Couldn't start cloudflared: ${e.message}")
         }
     }
+
+    /**
+     * Runs a **named** tunnel from a provisioned run token
+     * ([CloudflareNamedTunnel]). Ingress and DNS are configured server-side, so
+     * there is no URL to parse from the output — the public address is the known
+     * [hostname]; success is confirmed by `cloudflared` registering a connection.
+     */
+    suspend fun startNamed(token: String, hostname: String): Result = withContext(Dispatchers.IO) {
+        val binary = File(appContext.applicationInfo.nativeLibraryDir, BINARY_NAME)
+        if (!binary.exists()) {
+            return@withContext Result.Failure(
+                "cloudflared isn't bundled for this device's CPU architecture in this build.",
+            )
+        }
+        runCatching {
+            val proc = ProcessBuilder(binary.absolutePath, "tunnel", "run", "--token", token)
+                .redirectErrorStream(true)
+                .start()
+            process = proc
+            awaitOutcome(proc, "didn't register a tunnel connection") { line ->
+                if (REGISTERED_PATTERN.containsMatchIn(line)) "https://$hostname" else null
+            }
+        }.getOrElse { e ->
+            Log.w(TAG, "cloudflared (named) failed to start", e)
+            Result.Failure("Couldn't start cloudflared: ${e.message}")
+        }
+    }
+
+    /** Shared outcome handling for both tunnel modes. [extract] pulls the success URL from a log line. */
+    private fun awaitOutcome(proc: Process, missedWhat: String, extract: (String) -> String?): Result =
+        when (val outcome = awaitUrl(proc, extract)) {
+            is AwaitOutcome.Found -> Result.Success(outcome.url)
+            is AwaitOutcome.TimedOut -> {
+                proc.destroy()
+                process = null
+                Result.Failure("cloudflared $missedWhat within ${TIMEOUT_MS / 1000}s." + outcome.lastLines.asDiagnostic())
+            }
+            is AwaitOutcome.ProcessExited -> {
+                process = null
+                Result.Failure("cloudflared exited before it $missedWhat." + outcome.lastLines.asDiagnostic())
+            }
+        }
 
     /** Kills the tunnel process, if one is running. The public URL stops working immediately. */
     fun stop() {
@@ -167,7 +192,7 @@ class CloudflareTunnel(private val appContext: Context) {
      * diagnostic path for whoever hits this; the lines are still logged at
      * DEBUG too, for the rare case a computer is around.
      */
-    private fun awaitUrl(proc: Process): AwaitOutcome {
+    private fun awaitUrl(proc: Process, extract: (String) -> String?): AwaitOutcome {
         val deadline = System.currentTimeMillis() + TIMEOUT_MS
         val timedOut = AtomicBoolean(false)
         val watchdog = Thread {
@@ -206,7 +231,7 @@ class CloudflareTunnel(private val appContext: Context) {
                     Log.d(TAG, "cloudflared: $line")
                     lastLines.addLast(line)
                     if (lastLines.size > MAX_DIAGNOSTIC_LINES) lastLines.removeFirst()
-                    tunnelUrlIn(line)?.let { return AwaitOutcome.Found(it) }
+                    extract(line)?.let { return AwaitOutcome.Found(it) }
                 }
             }
         } finally {
@@ -220,6 +245,9 @@ class CloudflareTunnel(private val appContext: Context) {
         const val TIMEOUT_MS = 30_000L
         const val MAX_DIAGNOSTIC_LINES = 5
         val URL_PATTERN = Regex("""https://[a-zA-Z0-9-]+\.trycloudflare\.com""", RegexOption.IGNORE_CASE)
+
+        /** cloudflared's log line once a named tunnel's connection is live. */
+        val REGISTERED_PATTERN = Regex("""Registered tunnel connection|Connection .* registered""", RegexOption.IGNORE_CASE)
 
         /** Formats captured `cloudflared` output as a suffix for an error message, or "" if none was captured. */
         internal fun List<String>.asDiagnostic(): String =

@@ -68,6 +68,8 @@ fun RemoteAccessScreen(vm: MainViewModel) {
     val cloudflareDeployState by vm.cloudflareDeployState.collectAsState()
     var cloudflareTokenInput by remember { mutableStateOf(vm.currentCloudflareApiToken()) }
     val tunnelState by vm.tunnelState.collectAsState()
+    val namedTunnelState by vm.namedTunnelState.collectAsState()
+    val stableAddressState by vm.stableAddressState.collectAsState()
     val connecting by vm.connecting.collectAsState()
     val mcpBearer by vm.mcpBearer.collectAsState()
     val hasAcceptedDisclosure by vm.hasAcceptedRemoteAccessDisclosure.collectAsState()
@@ -229,6 +231,94 @@ fun RemoteAccessScreen(vm: MainViewModel) {
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.error
                 )
+            }
+            else -> {}
+        }
+
+        Spacer(Modifier.height(36.dp))
+
+        // ---- Stable address: a named tunnel, no desktop, URL stays put ----
+        Text("Stable address (no desktop)", style = MaterialTheme.typography.titleMedium)
+        Spacer(Modifier.height(4.dp))
+        Text(
+            "A permanent https://${vm.stableHostname} that stays the same across " +
+                "sessions, straight to this phone's MCP server — register it once as a " +
+                "connector and keep it. One-time setup provisions a named Cloudflare " +
+                "tunnel using the API token below (under \"Deploy your own relay\"). The " +
+                "hostname must be free first — if it's attached to a Worker as a custom " +
+                "domain, detach it there.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(Modifier.height(8.dp))
+        val stableSettingUp = stableAddressState is MainViewModel.DeployState.Deploying ||
+            namedTunnelState is ControlService.Companion.TunnelState.Starting
+        Button(
+            onClick = {
+                if (namedTunnelState is ControlService.Companion.TunnelState.Running) {
+                    vm.stopStableAddress()
+                } else {
+                    requestEnable { vm.setUpStableAddress() }
+                }
+            },
+            enabled = !stableSettingUp,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            if (stableSettingUp) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    CircularProgressIndicator(modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(12.dp))
+                    Text("Setting up…")
+                }
+            } else {
+                Text(
+                    when {
+                        namedTunnelState is ControlService.Companion.TunnelState.Running -> "Stop stable address"
+                        vm.stableAddressProvisioned -> "Start stable address"
+                        else -> "Set up stable address"
+                    }
+                )
+            }
+        }
+        (stableAddressState as? MainViewModel.DeployState.Error)?.let {
+            Spacer(Modifier.height(4.dp))
+            Text(it.message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+        }
+        (stableAddressState as? MainViewModel.DeployState.Done)?.note?.let {
+            Spacer(Modifier.height(4.dp))
+            Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        when (val s = namedTunnelState) {
+            is ControlService.Companion.TunnelState.Running -> {
+                val endpoint = vm.publicMcpEndpoint(s.url)
+                Spacer(Modifier.height(12.dp))
+                ConnectorField("Connector URL", endpoint)
+                Spacer(Modifier.height(8.dp))
+                ConnectorField("Authorization header", "Bearer $mcpBearer")
+                Spacer(Modifier.height(8.dp))
+                OutlinedButton(
+                    onClick = {
+                        copyToClipboard(
+                            context,
+                            "claude mcp add --transport http mcpserved $endpoint " +
+                                "--header \"Authorization: Bearer $mcpBearer\"",
+                        )
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) { Text("Copy Claude Code command") }
+                val qr = remember(endpoint, mcpBearer) { renderQr(vm.mcpConfigJson(endpoint)) }
+                qr?.let {
+                    Spacer(Modifier.height(12.dp))
+                    Image(
+                        bitmap = it.asImageBitmap(),
+                        contentDescription = "Connector config QR",
+                        modifier = Modifier.size(220.dp)
+                    )
+                }
+            }
+            is ControlService.Companion.TunnelState.Error -> {
+                Spacer(Modifier.height(4.dp))
+                Text(s.message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
             }
             else -> {}
         }
