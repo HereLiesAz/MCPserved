@@ -27,6 +27,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 
 enum class Tab(val label: String) {
+    Home("Set up"),
     Devices("Devices"),
     Pair("Pair"),
     Hosts("AI Hosts"),
@@ -43,7 +44,7 @@ enum class Tab(val label: String) {
  */
 class AppController(private val scope: CoroutineScope) {
 
-    var selectedTab by mutableStateOf(Tab.Devices)
+    var selectedTab by mutableStateOf(Tab.Home)
 
     private val discovery = DeviceDiscovery()
     private val advertiser = DesktopAdvertiser().also { it.start() }
@@ -107,6 +108,10 @@ class AppController(private val scope: CoroutineScope) {
                     paired = true
                     pairedDeviceId = outcome.deviceId
                     log("paired with ${outcome.deviceId}")
+                    // One tap end to end: wiring the AI hosts is the whole
+                    // remaining step, so do it automatically the moment pairing
+                    // completes — no separate trip to the AI Hosts tab.
+                    installAll()
                 }.onFailure { e ->
                     pairStatus = PairStatus.Failed(e.message ?: "pairing failed")
                     log("pairing failed: ${e.message}")
