@@ -31,11 +31,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import com.google.zxing.BarcodeFormat
-import com.google.zxing.qrcode.QRCodeWriter
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
-import android.graphics.Color as AndroidColor
 
 /**
  * The desktop `mcpserved` bridge — the adb quick-connect path, for hosts that
@@ -231,19 +228,4 @@ fun DesktopBridgeScreen(vm: MainViewModel) {
  * and a white card would be the brightest object on a screen the user is asked
  * to point a camera at. Scanners read either polarity.
  */
-private fun renderQr(payload: String, size: Int = 640): Bitmap? = runCatching {
-    val matrix = QRCodeWriter().encode(payload, BarcodeFormat.QR_CODE, size, size)
-    // Fill a flat pixel array and hand it over in one setPixels call. Per-pixel
-    // setPixel here means size*size JNI crossings on the composition thread —
-    // hundreds of thousands of them — which visibly stalls the frame.
-    val pixels = IntArray(size * size)
-    for (y in 0 until size) {
-        val row = y * size
-        for (x in 0 until size) {
-            pixels[row + x] = if (matrix[x, y]) AndroidColor.WHITE else AndroidColor.BLACK
-        }
-    }
-    val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.RGB_565)
-    bmp.setPixels(pixels, 0, size, 0, 0, size, size)
-    bmp
-}.getOrNull()
+// renderQr now lives in QrCode.kt (shared with RemoteAccessScreen), same package.

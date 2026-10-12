@@ -2,6 +2,7 @@ package com.hereliesaz.mcpserved.ui
 
 import android.content.Intent
 import android.net.Uri
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -32,6 +33,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.hereliesaz.mcpserved.service.ControlService
@@ -66,6 +68,8 @@ fun RemoteAccessScreen(vm: MainViewModel) {
     val cloudflareDeployState by vm.cloudflareDeployState.collectAsState()
     var cloudflareTokenInput by remember { mutableStateOf(vm.currentCloudflareApiToken()) }
     val tunnelState by vm.tunnelState.collectAsState()
+    val connecting by vm.connecting.collectAsState()
+    val mcpBearer by vm.mcpBearer.collectAsState()
     val hasAcceptedDisclosure by vm.hasAcceptedRemoteAccessDisclosure.collectAsState()
     val context = LocalContext.current
 
@@ -122,25 +126,25 @@ fun RemoteAccessScreen(vm: MainViewModel) {
 
         Spacer(Modifier.height(24.dp))
 
-        // ---- The one-tap path: no account, nothing pre-deployed -----------
-        Text("Start a tunnel and connect", style = MaterialTheme.typography.titleLarge)
+        // ---- One tap: arm + tunnel, straight to a remote MCP connector ----
+        Text("Set up remote access", style = MaterialTheme.typography.titleLarge)
         Spacer(Modifier.height(4.dp))
         Text(
-            "No Cloudflare account, no token, nothing deployed ahead of time — " +
-                "the phone opens a tunnel to itself, then hands the address " +
-                "straight to your AI assistant's share sheet. One tap. It dies " +
-                "the moment you stop it or close the app; start a fresh one next " +
-                "time. Want an address that stays the same across sessions " +
-                "instead? See \"Deploy your own relay\" further down.",
+            "One tap: arms the service and opens a Cloudflare tunnel straight to " +
+                "this phone's MCP server. The address it hands back is a remote " +
+                "MCP endpoint — paste it and the token into a cloud assistant " +
+                "(claude.ai → Connectors, or Claude Code) and it's talking to this " +
+                "phone. No computer, no desktop app, nothing else to install. The " +
+                "tunnel dies when you stop it or close the app; for an address that " +
+                "stays put, deploy your own relay below.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
         Spacer(Modifier.height(8.dp))
-        // One tap, not two: pressing this starts the tunnel AND, the moment a
-        // URL exists, opens the share sheet with connect instructions already
-        // filled in — no separate "now go press Send" step. awaitingShare is
-        // scoped to *this* press, so reopening the screen on an already-
-        // running tunnel from an earlier session never re-pops the sheet.
+        // One tap, not three: this arms the service, opens the tunnel, and the
+        // moment a URL exists pops the share sheet with the connector details
+        // filled in. awaitingShare is scoped to *this* press, so reopening the
+        // screen on an already-running tunnel never re-pops the sheet.
         var awaitingShare by remember { mutableStateOf(false) }
         LaunchedEffect(tunnelState, awaitingShare) {
             if (!awaitingShare) return@LaunchedEffect
@@ -156,6 +160,7 @@ fun RemoteAccessScreen(vm: MainViewModel) {
                 awaitingShare = false
             }
         }
+        val settingUp = connecting || tunnelState is ControlService.Companion.TunnelState.Starting
         Button(
             onClick = {
                 if (tunnelState is ControlService.Companion.TunnelState.Running) {
@@ -163,34 +168,59 @@ fun RemoteAccessScreen(vm: MainViewModel) {
                 } else {
                     requestEnable {
                         awaitingShare = true
-                        vm.startTunnel()
+                        vm.setUpRemoteAccess()
                     }
                 }
             },
-            enabled = tunnelState !is ControlService.Companion.TunnelState.Starting,
+            enabled = !settingUp,
             modifier = Modifier.fillMaxWidth()
         ) {
-            if (tunnelState is ControlService.Companion.TunnelState.Starting) {
+            if (settingUp) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     CircularProgressIndicator(modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(12.dp))
-                    Text("Starting…")
+                    Text("Setting up…")
                 }
             } else {
                 Text(
-                    if (tunnelState is ControlService.Companion.TunnelState.Running) "Stop tunnel"
-                    else "Start tunnel and send to your AI assistant"
+                    if (tunnelState is ControlService.Companion.TunnelState.Running) "Stop remote access"
+                    else "Set up remote access"
                 )
             }
         }
         when (val state = tunnelState) {
             is ControlService.Companion.TunnelState.Running -> {
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    "Reachable at: ${state.url}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                val endpoint = vm.publicMcpEndpoint(state.url)
+                Spacer(Modifier.height(12.dp))
+                ConnectorField("Connector URL", endpoint)
+                Spacer(Modifier.height(8.dp))
+                ConnectorField("Authorization header", "Bearer $mcpBearer")
+                Spacer(Modifier.height(8.dp))
+                OutlinedButton(
+                    onClick = {
+                        copyToClipboard(
+                            context,
+                            "claude mcp add --transport http mcpserved $endpoint " +
+                                "--header \"Authorization: Bearer $mcpBearer\"",
+                        )
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) { Text("Copy Claude Code command") }
+                val qr = remember(endpoint, mcpBearer) { renderQr(vm.mcpConfigJson(endpoint)) }
+                qr?.let {
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        "Scan to carry the config to another device:",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Image(
+                        bitmap = it.asImageBitmap(),
+                        contentDescription = "Connector config QR",
+                        modifier = Modifier.size(220.dp)
+                    )
+                }
             }
             is ControlService.Companion.TunnelState.Error -> {
                 Spacer(Modifier.height(4.dp))
@@ -485,4 +515,22 @@ fun RemoteAccessScreen(vm: MainViewModel) {
             )
         }
     }
+}
+
+/** A labelled, selectable connector value with a Copy button. */
+@Composable
+private fun ConnectorField(label: String, value: String) {
+    val context = LocalContext.current
+    Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text(value, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
+        TextButton(onClick = { copyToClipboard(context, value) }) { Text("Copy") }
+    }
+}
+
+/** Copies [text] to the system clipboard. Platform API, no Compose-version coupling. */
+private fun copyToClipboard(context: android.content.Context, text: String) {
+    val cm = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE)
+        as? android.content.ClipboardManager
+    cm?.setPrimaryClip(android.content.ClipData.newPlainText("mcpserved", text))
 }

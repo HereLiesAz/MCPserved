@@ -361,7 +361,13 @@ class ControlService : Service() {
         _tunnelState.value = TunnelState.Starting
         val tunnel = CloudflareTunnel(applicationContext).also { cloudflareTunnel = it }
         scope.launch {
-            _tunnelState.value = when (val result = tunnel.start(LocalWsServer.DEFAULT_PORT)) {
+            // Front the Streamable-HTTP MCP server, not the sealed-frame WS: the
+            // public tunnel URL is then a bearer-authed remote MCP endpoint a
+            // cloud host (claude.ai, Claude Code) connects to directly — no
+            // desktop, no `mcpserved` client, no pairing. The bearer is the
+            // boundary (see McpServer); the WS/sealed-frame transports stay for
+            // the relay and mesh paths.
+            _tunnelState.value = when (val result = tunnel.start(McpServer.DEFAULT_HTTP_PORT)) {
                 is CloudflareTunnel.Result.Success -> TunnelState.Running(result.url)
                 is CloudflareTunnel.Result.Failure -> TunnelState.Error(result.message)
             }

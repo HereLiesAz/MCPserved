@@ -163,12 +163,15 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         _preferredHost.value = host
     }
 
-    /** A ready-to-paste MCP host config for the direct endpoint. */
-    fun mcpConfigJson(): String = """
+    /** A ready-to-paste MCP host config for the direct (loopback) endpoint. */
+    fun mcpConfigJson(): String = mcpConfigJson(mcpEndpoint)
+
+    /** A ready-to-paste MCP host config for any endpoint (e.g. a public tunnel URL). */
+    fun mcpConfigJson(endpoint: String): String = """
         {
           "mcpServers": {
             "mcpserved": {
-              "url": "$mcpEndpoint",
+              "url": "$endpoint",
               "headers": { "Authorization": "Bearer ${_mcpBearer.value}" }
             }
           }
@@ -299,6 +302,28 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         com.hereliesaz.mcpserved.service.ControlService.requestStopTunnel()
     }
 
+    /**
+     * One tap: arm the service if it isn't already (so the MCP server is bound),
+     * wait for it to come up, then open the tunnel. The tunnel has nothing to
+     * front until the server is listening, so arming must finish first — this
+     * sequences the two the ViewModel way, reusing [startService]'s poll.
+     */
+    fun setUpRemoteAccess() {
+        viewModelScope.launch {
+            if (!serviceRunning) {
+                startService()
+                // startService polls in its own coroutine; wait out the same
+                // window here so the tunnel starts only once the server is up.
+                for (attempt in 1..CONNECTING_POLL_ATTEMPTS) {
+                    if (serviceRunning) break
+                    delay(CONNECTING_POLL_INTERVAL_MS)
+                    _statusTick.value++
+                }
+            }
+            if (serviceRunning) startTunnel()
+        }
+    }
+
     /** Addresses this device could be reached at if [wildcardMcpBind] is set. */
     val localAddresses: List<String>
         get() = runCatching {
@@ -379,19 +404,35 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         _relayRoomToken.value = relayToken.rotate()
     }
 
+    /** The public MCP endpoint for a tunnel/base URL — [McpServer] serves at `/mcp`. */
+    fun publicMcpEndpoint(baseUrl: String): String = baseUrl.trimEnd('/') + "/mcp"
+
     /**
-     * The connect string for the session-scoped, one-tap Quick Tunnel.
+     * Connect instructions for the one-tap Quick Tunnel.
      *
-     * Deliberately **not** [relayConnectString] with the tunnel's URL
-     * substituted in — a Quick Tunnel has no relay software listening on the
-     * other end to broker a room, so `MCPSERVED_MODE=relay` (which dials a
-     * room-pairing protocol at that URL) would simply fail to connect. This
-     * is `MCPSERVED_MODE=tunnel`, dialed as a direct WebSocket with no room
-     * at all — see `mcp/src/tunnel-link.ts`. No relay to deploy, no API
-     * token, nothing to configure beyond having pressed the button.
+     * The tunnel now fronts the Streamable-HTTP [McpServer] (not the sealed-frame
+     * WebSocket), so the public URL is a bearer-authed remote MCP endpoint a host
+     * wires to directly — no `mcpserved` client, no pairing. Both forms, since a
+     * host either takes a URL + Authorization header (claude.ai, Claude Code) or
+     * reads a config file.
      */
-    fun tunnelConnectString(url: String): String =
-        "MCPSERVED_MODE=tunnel MCPSERVED_HOST=$url mcpserved install claude-code"
+    fun tunnelConnectString(url: String): String {
+        val endpoint = publicMcpEndpoint(url)
+        val bearer = _mcpBearer.value
+        return """
+            MCPserved — remote MCP server (Streamable HTTP, no desktop needed).
+
+            Add as a connector (e.g. claude.ai → Settings → Connectors):
+              URL:    $endpoint
+              Header: Authorization: Bearer $bearer
+
+            Claude Code, one line:
+              claude mcp add --transport http mcpserved $endpoint --header "Authorization: Bearer $bearer"
+
+            Config-file hosts:
+            ${mcpConfigJson(endpoint)}
+        """.trimIndent()
+    }
 
     /**
      * The connect string for a persistent, operator-deployed relay.
