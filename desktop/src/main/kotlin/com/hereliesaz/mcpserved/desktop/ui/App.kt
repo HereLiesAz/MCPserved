@@ -74,6 +74,7 @@ fun launchGui() = application {
                     Rail(controller)
                     Box(Modifier.fillMaxSize().padding(24.dp)) {
                         when (controller.selectedTab) {
+                            Tab.Home -> HomeScreen(controller)
                             Tab.Devices -> DevicesScreen(controller)
                             Tab.Pair -> PairScreen(controller)
                             Tab.Hosts -> HostsScreen(controller)
@@ -90,6 +91,12 @@ fun launchGui() = application {
 private fun Rail(controller: AppController) {
     NavigationRail {
         Spacer(Modifier.height(12.dp))
+        NavigationRailItem(
+            selected = controller.selectedTab == Tab.Home,
+            onClick = { controller.selectedTab = Tab.Home },
+            icon = { Text("✦") },
+            label = { Text("Set up") },
+        )
         NavigationRailItem(
             selected = controller.selectedTab == Tab.Devices,
             onClick = { controller.selectedTab = Tab.Devices },
@@ -253,6 +260,64 @@ private fun DevicesScreen(controller: AppController) {
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun HomeScreen(controller: AppController) {
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+        Heading(
+            "Set up",
+            "One code, scanned once on your phone. Pairing and wiring your AI tools both happen from " +
+                "that — there is nothing else to do here.",
+        )
+
+        if (!controller.paired) {
+            Text(
+                "On the phone, open MCPserved → Desktop bridge → \"Scan the server's code\" and point it " +
+                    "at this. It finishes the instant it scans, and wires your AI tools automatically.",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Spacer(Modifier.height(16.dp))
+            val qr = controller.deviceQr
+            Image(
+                bitmap = remember(qr) { qrImage(qr.qr) },
+                contentDescription = "this computer's pairing QR",
+            )
+            Spacer(Modifier.height(16.dp))
+            when (val status = controller.pairStatus) {
+                is AppController.PairStatus.Listening -> Row(verticalAlignment = Alignment.CenterVertically) {
+                    CircularProgressIndicator(modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(12.dp))
+                    Text("Waiting for the phone to scan…", style = MaterialTheme.typography.bodyMedium)
+                }
+                is AppController.PairStatus.Failed -> Column {
+                    Text("Pairing failed: ${status.message}", color = MaterialTheme.colorScheme.error)
+                    Spacer(Modifier.height(12.dp))
+                    OutlinedButton(onClick = { controller.regenerateDeviceQr() }) { Text("Generate a new code") }
+                }
+            }
+            return
+        }
+
+        Text("✓ Paired with ${controller.pairedDeviceId}", style = MaterialTheme.typography.titleMedium)
+        Spacer(Modifier.height(8.dp))
+        Text(
+            "Your AI tools were wired automatically. Arm the service on the phone and they can reach it.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(16.dp))
+        Button(onClick = { controller.installAll() }) { Text("⚡  Re-wire my AI tools") }
+        if (controller.hostOutcomes.isNotEmpty()) {
+            Spacer(Modifier.height(20.dp))
+            Text("Wired", style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(8.dp))
+            controller.hostOutcomes.forEach {
+                Text("• $it", style = MaterialTheme.typography.bodySmall)
+                Spacer(Modifier.height(4.dp))
             }
         }
     }
