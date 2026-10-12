@@ -50,21 +50,27 @@ Either way, copy the deployed URL, e.g.
 `https://mcpserved-relay.<you>.workers.dev` — use the `wss://` scheme when
 you configure it below; Cloudflare answers both.
 
-### Custom domains
+### Custom domains (optional, your own)
 
-`wrangler.toml` attaches two custom domains so the relay has a stable, branded
-host instead of the rotating `*.workers.dev` name:
+The relay works out of the box at its account's `*.workers.dev` URL; no custom
+domain is shipped, since each operator deploys to their own account. To put the
+relay on your own branded host, uncomment the `routes` block in `wrangler.toml`
+and set a hostname in a Cloudflare zone on the **same account** (a plain CNAME
+to `*.workers.dev` will not route a Worker):
 
-- `mcp.azphalt.store`
-- `mcpserved.hereliesaz.com`
+~~~toml
+routes = [
+    { pattern = "mcp.yourdomain.com", custom_domain = true },
+]
+~~~
 
-Each hostname's zone must be on the **same Cloudflare account** as the Worker
-(a plain CNAME to `*.workers.dev` will not route a Worker). On `wrangler deploy`
-Cloudflare creates the proxied DNS record and the TLS cert for each; give it a
-minute, then `https://<host>/health` returns the relay banner and
-`wss://<host>/connect?room=…&role=…` upgrades. WebSockets pass through custom
-domains unchanged. Use either host as `MCPSERVED_RELAY_URL` below (`wss://<host>`,
-no trailing `/connect`); the room token and bearer are unaffected.
+On `wrangler deploy` Cloudflare creates the proxied DNS record and TLS cert; give
+it a minute, then `https://<host>/health` returns the relay banner and
+`wss://<host>/connect?room=…&role=…` upgrades. WebSockets pass through unchanged.
+Use the host as `MCPSERVED_RELAY_URL` below (`wss://<host>`, no trailing
+`/connect`); the room token and bearer are unaffected. Don't reuse a hostname
+you've pointed at a named tunnel (the phone's no-desktop connector) — it would
+fight the tunnel's DNS route.
 
 ## Configure
 

@@ -44,7 +44,7 @@ class CloudflareApiToken(ctx: Context) {
         get() = prefs.getString(KEY_RUN_TOKEN, "") ?: ""
         set(value) = prefs.edit().putString(KEY_RUN_TOKEN, value.trim()).apply()
 
-    /** The hostname that named tunnel serves (e.g. `mcp.azphalt.store`). Not secret, kept here for cohesion. */
+    /** The hostname the named tunnel serves (the operator's own, e.g. `mcp.example.com`). Not secret, kept here for cohesion. */
     var namedTunnelHostname: String
         get() = prefs.getString(KEY_HOSTNAME, "") ?: ""
         set(value) = prefs.edit().putString(KEY_HOSTNAME, value.trim()).apply()

@@ -24,7 +24,7 @@ import java.util.concurrent.TimeUnit
  * [McpServer], over Cloudflare's REST API — no `cloudflared login`, no
  * terminal, just the same API token the relay deploy uses. Unlike the
  * session-scoped Quick Tunnel ([CloudflareTunnel.start]), a named tunnel has a
- * **stable hostname** ([hostname], e.g. `mcp.azphalt.store`): the public URL
+ * **stable hostname** ([hostname], e.g. `mcp.example.com`): the public URL
  * stays the same across sessions, so a cloud host can register it once as a
  * remote MCP connector and keep it.
  *

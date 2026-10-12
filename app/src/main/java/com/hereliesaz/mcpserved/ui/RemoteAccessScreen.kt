@@ -241,14 +241,26 @@ fun RemoteAccessScreen(vm: MainViewModel) {
         Text("Stable address (no desktop)", style = MaterialTheme.typography.titleMedium)
         Spacer(Modifier.height(4.dp))
         Text(
-            "A permanent https://${vm.stableHostname} that stays the same across " +
-                "sessions, straight to this phone's MCP server — register it once as a " +
-                "connector and keep it. One-time setup provisions a named Cloudflare " +
-                "tunnel using the API token below (under \"Deploy your own relay\"). The " +
-                "hostname must be free first — if it's attached to a Worker as a custom " +
-                "domain, detach it there.",
+            "A permanent https://<your-host> that stays the same across sessions, " +
+                "straight to this phone's MCP server — register it once as a connector " +
+                "and keep it. Enter a subdomain in a Cloudflare zone on your own account; " +
+                "one-time setup provisions a named Cloudflare tunnel using the API token " +
+                "below (under \"Deploy your own relay\"). It's your domain and your " +
+                "account, so only Cloudflare — never anyone else — carries the traffic.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(Modifier.height(8.dp))
+        var stableHostInput by remember { mutableStateOf(vm.currentNamedTunnelHostname()) }
+        OutlinedTextField(
+            value = stableHostInput,
+            onValueChange = {
+                stableHostInput = it.trim()
+                vm.setNamedTunnelHostname(stableHostInput)
+            },
+            label = { Text("Your hostname (e.g. mcp.yourdomain.com)") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
         )
         Spacer(Modifier.height(8.dp))
         val stableSettingUp = stableAddressState is MainViewModel.DeployState.Deploying ||
