@@ -2,17 +2,20 @@ name = "mcpserved-relay"
 main = "worker.js"
 compatibility_date = "2024-09-01"
 
-# Custom domains for the relay. Each gives the Worker a stable, branded host
-# in place of the rotating *.workers.dev name, and Cloudflare provisions the
-# DNS record and TLS cert automatically on `wrangler deploy`. WebSockets
-# (the /connect upgrade) pass through custom domains unchanged.
+# Custom domain for the relay — a stable, branded host in place of the rotating
+# *.workers.dev name. Cloudflare provisions the DNS record and TLS cert
+# automatically on `wrangler deploy`. WebSockets (the /connect upgrade) pass
+# through custom domains unchanged.
 #
-# Prerequisite: each hostname's zone (azphalt.store, hereliesaz.com) must be
-# on the same Cloudflare account as this Worker. A custom domain owns the whole
-# hostname — correct here, since the relay is the only thing served at each.
-# Clients then point MCPSERVED_RELAY_URL at wss://<host> (no trailing /connect).
+# Prerequisite: the hostname's zone (hereliesaz.com) must be on the same
+# Cloudflare account as this Worker. A custom domain owns the whole hostname —
+# correct here, since the relay is the only thing served at it. Clients then
+# point MCPSERVED_RELAY_URL at wss://<host> (no trailing /connect).
+#
+# mcp.azphalt.store is deliberately NOT here: it's owned by the phone's named
+# Cloudflare tunnel (the no-desktop HTTP MCP connector), so it must stay off the
+# Worker — declaring it as a custom domain would fight the tunnel's DNS route.
 routes = [
-    { pattern = "mcp.azphalt.store", custom_domain = true },
     { pattern = "mcpserved.hereliesaz.com", custom_domain = true },
 ]
 
