@@ -349,6 +349,14 @@ fun RemoteAccessScreen(vm: MainViewModel) {
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+                state.note?.let {
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        it,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
             is MainViewModel.DeployState.Error -> {
                 Spacer(Modifier.height(4.dp))

@@ -224,7 +224,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     sealed class DeployState {
         object Idle : DeployState()
         object Deploying : DeployState()
-        data class Done(val url: String) : DeployState()
+        data class Done(val url: String, val note: String? = null) : DeployState()
         data class Error(val message: String) : DeployState()
     }
 
@@ -262,7 +262,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             when (val result = cloudflareDeployer.deploy(token)) {
                 is com.hereliesaz.mcpserved.transport.CloudflareRelayDeployer.Result.Success -> {
                     setRelayUrl(result.url)
-                    _cloudflareDeployState.value = DeployState.Done(result.url)
+                    val note = buildString {
+                        if (result.customDomains.isNotEmpty()) {
+                            append("Custom domains attached: ${result.customDomains.joinToString()}.")
+                        }
+                        result.notes.forEach { if (isNotEmpty()) append(' '); append(it).append('.') }
+                    }.trim().ifBlank { null }
+                    _cloudflareDeployState.value = DeployState.Done(result.url, note)
                 }
                 is com.hereliesaz.mcpserved.transport.CloudflareRelayDeployer.Result.Failure -> {
                     _cloudflareDeployState.value = DeployState.Error(result.message)
