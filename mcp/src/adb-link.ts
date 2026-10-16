@@ -237,7 +237,7 @@ export class AdbLink implements Link {
 
   private resolvePoint(req: { nodeId?: string; x?: number; y?: number }): { x: number; y: number } | null {
     if (req.nodeId) return this.nodeCenters.get(req.nodeId) ?? null;
-    if (typeof req.x === "number" && typeof req.y === "number") return { x: req.x, y: req.y };
+    if (Number.isSafeInteger(req.x) && Number.isSafeInteger(req.y)) return { x: req.x!, y: req.y! };
     return null;
   }
 
@@ -252,12 +252,17 @@ export class AdbLink implements Link {
     const p = this.resolvePoint(req);
     if (!p) return { ok: false, error: "no node id or x,y given" };
     const ms = req.ms ?? 500;
+    if (!Number.isSafeInteger(ms) || ms < 1 || ms > 60_000)
+      return { ok: false, error: "invalid hold duration" };
     await adbShellText(`input swipe ${p.x} ${p.y} ${p.x} ${p.y} ${ms}`);
     return { ok: true, foregroundChanged: false };
   }
 
   private async swipe(req: any): Promise<any> {
     const ms = req.ms ?? 300;
+    if (![req.x1, req.y1, req.x2, req.y2, ms].every(Number.isSafeInteger) ||
+        ms < 1 || ms > 60_000)
+      return { ok: false, error: "invalid swipe coordinates or duration" };
     await adbShellText(`input swipe ${req.x1} ${req.y1} ${req.x2} ${req.y2} ${ms}`);
     return { ok: true, foregroundChanged: false };
   }
