@@ -65,12 +65,14 @@ class CloudflareNamedTunnel(private val appContext: Context) {
             if (apiToken.isBlank()) return@withContext Result.Failure("No API token.")
             if (hostname.isBlank()) return@withContext Result.Failure("No hostname.")
             runCatching {
-                val notes = mutableListOf<String>()
-                val accountId = findAccountId(apiToken)
+                // Resolve the matching zone first: the first Cloudflare account may
+                // own a completely different domain.
+                val zone = findZone(apiToken, hostname)
                     ?: return@withContext Result.Failure(
-                        "Couldn't find a Cloudflare account for this token. It needs " +
-                            "Account.Cloudflare Tunnel:Edit, Zone.DNS:Edit and Zone:Read."
+                        "No Cloudflare zone matching $hostname with an identifiable owning account. " +
+                            "Grant Zone:Read for the zone and use a hostname in that zone."
                     )
+                val accountId = zone.accountId
 
                 val tunnelName = "mcpserved-" + hostname.replace('.', '-')
                 val tunnel = ensureTunnel(apiToken, accountId, tunnelName)
@@ -79,20 +81,17 @@ class CloudflareNamedTunnel(private val appContext: Context) {
                             "Account.Cloudflare Tunnel:Edit."
                     )
 
-                putIngress(apiToken, accountId, tunnel.id, hostname, localPort)?.let { notes += it }
-
-                val zoneId = findZoneId(apiToken, hostname)
-                if (zoneId == null) {
-                    notes += "$hostname: no matching zone on this account (add the zone, or grant Zone:Read), " +
-                        "so the DNS route wasn't created — add a proxied CNAME to ${tunnel.id}.cfargotunnel.com by hand."
-                } else {
-                    routeDns(apiToken, zoneId, hostname, tunnel.id)?.let { notes += it }
+                putIngress(apiToken, accountId, tunnel.id, hostname, localPort)?.let {
+                    return@withContext Result.Failure(it)
+                }
+                routeDns(apiToken, zone.id, hostname, tunnel.id)?.let {
+                    return@withContext Result.Failure(it)
                 }
 
                 val runToken = tunnelToken(apiToken, accountId, tunnel.id)
                     ?: return@withContext Result.Failure("Tunnel created, but couldn't read its run token.")
 
-                Result.Success(hostname, runToken, notes)
+                Result.Success(hostname, runToken)
             }.getOrElse { e ->
                 Result.Failure(
                     when (e) {
@@ -110,14 +109,6 @@ class CloudflareNamedTunnel(private val appContext: Context) {
 
     private fun bodyOf(response: okhttp3.Response): JsonObject? =
         response.body?.string()?.let { runCatching { json.parseToJsonElement(it).jsonObject }.getOrNull() }
-
-    private fun findAccountId(token: String): String? {
-        val req = authed("$API_BASE/accounts", token).get().build()
-        client.newCall(req).execute().use { resp ->
-            val results = (bodyOf(resp)?.get("result") as? JsonArray) ?: return null
-            return results.firstOrNull()?.jsonObject?.get("id")?.jsonPrimitive?.content
-        }
-    }
 
     /** Creates the Cloudflare-managed tunnel, or reuses the existing same-named one. */
     private fun ensureTunnel(token: String, accountId: String, name: String): Tunnel? {
@@ -160,9 +151,29 @@ class CloudflareNamedTunnel(private val appContext: Context) {
         }
     }
 
-    /** Creates (or updates) the proxied CNAME to the tunnel. Null on success, else a note. */
+    /**
+     * Never rewrite an existing DNS name owned by something else. An A, MX,
+     * TXT, or different CNAME is a conflict requiring the operator to act.
+     */
     private fun routeDns(token: String, zoneId: String, hostname: String, tunnelId: String): String? {
         val target = "$tunnelId.cfargotunnel.com"
+        val existing = authed("$API_BASE/zones/$zoneId/dns_records?name=$hostname&per_page=100", token).get().build()
+        client.newCall(existing).execute().use { resp ->
+            if (!resp.isSuccessful) return "$hostname: could not verify existing DNS records (HTTP ${resp.code})."
+            val records = bodyOf(resp)?.get("result") as? JsonArray
+                ?: return "$hostname: could not parse existing DNS records."
+            val exact = records.mapNotNull { it as? JsonObject }
+                .filter { it["name"]?.jsonPrimitive?.content.equals(hostname, ignoreCase = true) }
+            if (exact.size > 1) return "$hostname: multiple DNS records already exist; resolve them manually."
+            if (exact.size == 1) {
+                val record = exact.single()
+                val type = record["type"]?.jsonPrimitive?.content
+                val content = record["content"]?.jsonPrimitive?.content
+                val proxied = record["proxied"]?.jsonPrimitive?.content == "true"
+                return if (type == "CNAME" && content == target && proxied) null
+                else "$hostname already has a $type record. Refusing to overwrite it; remove or update it explicitly in Cloudflare."
+            }
+        }
         val recordBody = buildJsonObject {
             put("type", "CNAME")
             put("name", hostname)
@@ -170,20 +181,10 @@ class CloudflareNamedTunnel(private val appContext: Context) {
             put("proxied", true)
         }.toString().toRequestBody(JSON_MEDIA_TYPE)
         client.newCall(authed("$API_BASE/zones/$zoneId/dns_records", token).post(recordBody).build())
-            .execute().use { resp -> if (resp.isSuccessful) return null }
-        // Create failed — a record for this name probably exists (e.g. a Worker
-        // custom domain). Update it to point at the tunnel instead.
-        val existing = authed("$API_BASE/zones/$zoneId/dns_records?name=$hostname", token).get().build()
-        val recordId = client.newCall(existing).execute().use { resp ->
-            (bodyOf(resp)?.get("result") as? JsonArray)?.firstOrNull()
-                ?.jsonObject?.get("id")?.jsonPrimitive?.content
-        } ?: return "$hostname: couldn't create the DNS route and found no existing record to update."
-        val putReq = authed("$API_BASE/zones/$zoneId/dns_records/$recordId", token).put(recordBody).build()
-        client.newCall(putReq).execute().use { resp ->
-            return if (resp.isSuccessful) null
-            else "$hostname: an existing DNS record is in the way and couldn't be repointed (HTTP ${resp.code}) — " +
-                "if it's a Worker custom domain, detach it there first."
-        }
+            .execute().use { resp ->
+                return if (resp.isSuccessful) null
+                else "$hostname: Cloudflare refused to create the DNS route (HTTP ${resp.code}). Existing records were not modified."
+            }
     }
 
     private fun tunnelToken(token: String, accountId: String, tunnelId: String): String? {
@@ -193,23 +194,38 @@ class CloudflareNamedTunnel(private val appContext: Context) {
         }
     }
 
-    /** The owning zone's id for [hostname] — longest visible zone the hostname ends with. */
-    private fun findZoneId(token: String, hostname: String): String? {
-        val req = authed("$API_BASE/zones?per_page=50", token).get().build()
-        client.newCall(req).execute().use { resp ->
-            val results = (bodyOf(resp)?.get("result") as? JsonArray) ?: return null
-            return results.mapNotNull { it as? JsonObject }
-                .mapNotNull { z ->
-                    val name = z["name"]?.jsonPrimitive?.content ?: return@mapNotNull null
-                    val id = z["id"]?.jsonPrimitive?.content ?: return@mapNotNull null
-                    if (hostname == name || hostname.endsWith(".$name")) name to id else null
+    private data class Zone(val id: String, val accountId: String)
+
+    /** Longest suffix match over every page, using that zone's owning account. */
+    private fun findZone(token: String, hostname: String): Zone? {
+        var best: Pair<String, Zone>? = null
+        for (page in 1..MAX_ZONE_PAGES) {
+            val req = authed("$API_BASE/zones?per_page=50&page=$page", token).get().build()
+            val results = client.newCall(req).execute().use { resp ->
+                if (!resp.isSuccessful) throw IOException("Cloudflare zone lookup failed (HTTP ${resp.code})")
+                bodyOf(resp)?.get("result") as? JsonArray
+                    ?: throw IOException("Cloudflare returned an invalid zone list")
+            }
+            for (item in results) {
+                val zone = item as? JsonObject ?: continue
+                val name = zone["name"]?.jsonPrimitive?.content ?: continue
+                val id = zone["id"]?.jsonPrimitive?.content ?: continue
+                val accountId = (zone["account"] as? JsonObject)?.get("id")?.jsonPrimitive?.content ?: continue
+                if ((hostname.equals(name, ignoreCase = true) ||
+                        hostname.endsWith(".$name", ignoreCase = true)) &&
+                    (best == null || name.length > best.first.length)
+                ) {
+                    best = name to Zone(id, accountId)
                 }
-                .maxByOrNull { it.first.length }?.second
+            }
+            if (results.size < 50) return best?.second
         }
+        throw IOException("Cloudflare zone list exceeded $MAX_ZONE_PAGES pages; refusing an incomplete lookup")
     }
 
     private companion object {
         const val API_BASE = "https://api.cloudflare.com/client/v4"
+        const val MAX_ZONE_PAGES = 1000
         val JSON_MEDIA_TYPE = "application/json".toMediaType()
     }
 }
