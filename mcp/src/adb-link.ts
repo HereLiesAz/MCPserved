@@ -2,6 +2,16 @@ import { adbReady, adbShell, adbShellText, shellQuote } from "./adb.js";
 import type { Link } from "./link.js";
 
 /**
+ * Coerces a model-supplied number to an integer before it is spliced into a
+ * shell command line. Anything non-numeric throws rather than reaching the shell.
+ */
+function int(v: unknown): number {
+  const n = Number(v);
+  if (!Number.isFinite(n)) throw new Error(`expected a number, got ${JSON.stringify(v)}`);
+  return Math.trunc(n);
+}
+
+/**
  * Controls the device purely through `adb`, no on-device app required.
  *
  * This is the quick-connect path: enable USB debugging (or adb-over-Wi-Fi),
@@ -237,7 +247,7 @@ export class AdbLink implements Link {
 
   private resolvePoint(req: { nodeId?: string; x?: number; y?: number }): { x: number; y: number } | null {
     if (req.nodeId) return this.nodeCenters.get(req.nodeId) ?? null;
-    if (typeof req.x === "number" && typeof req.y === "number") return { x: req.x, y: req.y };
+    if (Number.isFinite(req.x) && Number.isFinite(req.y)) return { x: int(req.x), y: int(req.y) };
     return null;
   }
 
@@ -251,14 +261,14 @@ export class AdbLink implements Link {
   private async longPress(req: any): Promise<any> {
     const p = this.resolvePoint(req);
     if (!p) return { ok: false, error: "no node id or x,y given" };
-    const ms = req.ms ?? 500;
+    const ms = int(req.ms ?? 500);
     await adbShellText(`input swipe ${p.x} ${p.y} ${p.x} ${p.y} ${ms}`);
     return { ok: true, foregroundChanged: false };
   }
 
   private async swipe(req: any): Promise<any> {
-    const ms = req.ms ?? 300;
-    await adbShellText(`input swipe ${req.x1} ${req.y1} ${req.x2} ${req.y2} ${ms}`);
+    const ms = int(req.ms ?? 300);
+    await adbShellText(`input swipe ${int(req.x1)} ${int(req.y1)} ${int(req.x2)} ${int(req.y2)} ${ms}`);
     return { ok: true, foregroundChanged: false };
   }
 
@@ -286,7 +296,10 @@ export class AdbLink implements Link {
   private async type(req: any): Promise<any> {
     if (req.nodeId) {
       const p = this.nodeCenters.get(req.nodeId);
-      if (p) await adbShellText(`input tap ${p.x} ${p.y}`);
+      // Typing into "whatever is focused" when the target is unknown could land
+      // text in the wrong field; refuse instead.
+      if (!p) return { ok: false, error: "unknown node id — call ui_tree first" };
+      await adbShellText(`input tap ${p.x} ${p.y}`);
     }
     // `input text` takes spaces as %s and cannot express newlines or most
     // non-ASCII. Good enough for field entry; the app path handles the rest.
