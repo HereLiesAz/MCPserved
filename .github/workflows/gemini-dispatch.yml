@@ -142,7 +142,10 @@ jobs:
       pull-requests: 'write'
     with:
       additional_context: '${{ needs.dispatch.outputs.additional_context }}'
-    secrets: 'inherit'
+    secrets:
+      GEMINI_API_KEY: '${{ secrets.GEMINI_API_KEY }}'
+      APP_PRIVATE_KEY: '${{ secrets.APP_PRIVATE_KEY }}'
+      GH_TOKEN: '${{ secrets.GH_TOKEN }}'
 
   triage:
     needs: 'dispatch'
@@ -156,7 +159,10 @@ jobs:
       pull-requests: 'write'
     with:
       additional_context: '${{ needs.dispatch.outputs.additional_context }}'
-    secrets: 'inherit'
+    secrets:
+      GEMINI_API_KEY: '${{ secrets.GEMINI_API_KEY }}'
+      APP_PRIVATE_KEY: '${{ secrets.APP_PRIVATE_KEY }}'
+      GH_TOKEN: '${{ secrets.GH_TOKEN }}'
 
   invoke:
     needs: 'dispatch'
@@ -170,7 +176,10 @@ jobs:
       pull-requests: 'write'
     with:
       additional_context: '${{ needs.dispatch.outputs.additional_context }}'
-    secrets: 'inherit'
+    secrets:
+      GEMINI_API_KEY: '${{ secrets.GEMINI_API_KEY }}'
+      APP_PRIVATE_KEY: '${{ secrets.APP_PRIVATE_KEY }}'
+      GH_TOKEN: '${{ secrets.GH_TOKEN }}'
 
   fallthrough:
     needs:
