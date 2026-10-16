@@ -21,7 +21,7 @@ import java.util.UUID
 class Session(private val defaultTtlSec: Int = 300) {
 
     /** Live session state, or null when no session is open. */
-    data class State(val id: String, val expiresAtEpochMs: Long) {
+    data class State(val id: String, val expiresAtEpochMs: Long, val ttlSec: Int = 300) {
         fun isExpired(now: Long = System.currentTimeMillis()): Boolean = now >= expiresAtEpochMs
         fun remainingSec(now: Long = System.currentTimeMillis()): Int =
             ((expiresAtEpochMs - now) / 1000).coerceAtLeast(0).toInt()
@@ -47,7 +47,8 @@ class Session(private val defaultTtlSec: Int = 300) {
         val ttl = ttlSec.coerceIn(MIN_TTL_SEC, MAX_TTL_SEC)
         val s = State(
             id = UUID.randomUUID().toString(),
-            expiresAtEpochMs = System.currentTimeMillis() + ttl * 1000L
+            expiresAtEpochMs = System.currentTimeMillis() + ttl * 1000L,
+            ttlSec = ttl,
         )
         _state.value = s
         return s
@@ -57,17 +58,19 @@ class Session(private val defaultTtlSec: Int = 300) {
      * Pushes expiry back by [ttlSec] from now, if a session is live.
      *
      * Called on every successful action so that an active session does not
-     * expire mid-task, while an abandoned one still lapses on schedule.
+     * expire mid-task, while an abandoned one still lapses on schedule. The
+     * extension is the TTL the session was opened with, so a caller that asked
+     * for 30 s is not silently upgraded to the default on its first action.
      *
      * @return the extended state, or null when no live session exists
      */
-    fun touch(ttlSec: Int = defaultTtlSec): State? {
+    fun touch(ttlSec: Int? = null): State? {
         val cur = _state.value ?: return null
         if (cur.isExpired()) {
             _state.value = null
             return null
         }
-        val ttl = ttlSec.coerceIn(MIN_TTL_SEC, MAX_TTL_SEC)
+        val ttl = (ttlSec ?: cur.ttlSec).coerceIn(MIN_TTL_SEC, MAX_TTL_SEC)
         val next = cur.copy(expiresAtEpochMs = System.currentTimeMillis() + ttl * 1000L)
         _state.value = next
         return next
