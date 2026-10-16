@@ -1,6 +1,7 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 import java.util.Properties
+import java.security.MessageDigest
 
 plugins {
     alias(libs.plugins.android.application)
@@ -317,4 +318,41 @@ dependencies {
     // implementation so the sealed-frame protocol can be exercised in a plain
     // local unit test, without a device or emulator.
     testImplementation(libs.robolectric)
+}
+
+// Pin the packaged native executable bytes to the reviewed Git object IDs.
+// These are Git SHA-1 *blob* hashes (including "blob <length>\\0"), not
+// upstream signatures or proof of reproducible compilation. A replacement
+// requires a deliberate manifest update and provenance review.
+val verifyCloudflaredBinaries = tasks.register("verifyCloudflaredBinaries") {
+    group = "verification"
+    description = "Verify the exact checked-in cloudflared ARM executables."
+    doLast {
+        val expected = mapOf(
+            "arm64-v8a" to "b96ce1ff861edb895fd1a87c0d67b31391591efc",
+            "armeabi-v7a" to "0142aad65724c21a93e83177142708334260a04d",
+        )
+        expected.forEach { (abi, gitBlobSha) ->
+            val binary = project.file("src/main/jniLibs/$abi/libcloudflared.so")
+            check(binary.isFile) { "Missing bundled cloudflared for $abi" }
+            val digest = MessageDigest.getInstance("SHA-1")
+            digest.update("blob ${binary.length()}\\u0000".toByteArray(Charsets.UTF_8))
+            binary.inputStream().buffered().use { input ->
+                val buffer = ByteArray(8192)
+                while (true) {
+                    val count = input.read(buffer)
+                    if (count < 0) break
+                    digest.update(buffer, 0, count)
+                }
+            }
+            val actual = digest.digest().joinToString("") { "%02x".format(it) }
+            check(actual == gitBlobSha) {
+                "Unexpected cloudflared binary for $abi: $actual (expected $gitBlobSha)"
+            }
+        }
+    }
+}
+
+tasks.named("preBuild") {
+    dependsOn(verifyCloudflaredBinaries)
 }
