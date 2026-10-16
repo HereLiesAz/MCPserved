@@ -132,8 +132,10 @@ rewrite it and prints the snippet to paste instead.
 | **Windsurf** | `npx mcpserved install windsurf`. |
 | **Cline** (VS Code) | `npx mcpserved install cline`. |
 
-When you have the app installed and paired, the bridge upgrades to it
-automatically (`MCPSERVED_MODE=auto`); without a pairing it falls back to adb. See
+When the app is paired, the bridge uses it automatically (`MCPSERVED_MODE=auto`)
+and fails closed if it is unreachable. Without a pairing, `auto` uses adb.
+To select unrestricted adb despite an existing pairing, explicitly set
+`MCPSERVED_MODE=adb`. See
 [desktop-server](desktop-server.md).
 
 ## After it's connected — either path
