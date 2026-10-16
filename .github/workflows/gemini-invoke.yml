@@ -7,6 +7,13 @@ on:
         type: 'string'
         description: 'Any additional context from the request'
         required: false
+    secrets:
+      GEMINI_API_KEY:
+        required: false
+      APP_PRIVATE_KEY:
+        required: false
+      GH_TOKEN:
+        required: false
 
 concurrency:
   group: '${{ github.workflow }}-invoke-${{ github.event_name }}-${{ github.event.pull_request.number || github.event.issue.number }}'
@@ -42,11 +49,11 @@ jobs:
           permission-pull-requests: 'write'
 
       - name: 'Checkout Code'
-        uses: 'actions/checkout@v7' # ratchet:exclude
+        uses: 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1' # pinned: v7
 
       - name: 'Run Gemini CLI'
         id: 'run_gemini'
-        uses: 'google-github-actions/run-gemini-cli@v0' # ratchet:exclude
+        uses: 'google-github-actions/run-gemini-cli@f77273f4c914e4bf38440cf36a0369cb64a37489' # pinned: v0.1.22
         env:
           # Trust the CI checkout so the headless CLI doesn't refuse to run with
           # "not running in a trusted directory" (it can't prompt in automation).
