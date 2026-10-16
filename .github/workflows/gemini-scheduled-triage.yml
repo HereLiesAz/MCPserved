@@ -41,6 +41,7 @@ jobs:
     outputs:
       available_labels: '${{ steps.get_labels.outputs.available_labels }}'
       triaged_issues: '${{ env.TRIAGED_ISSUES }}'
+      issues_to_triage: '${{ steps.find_issues.outputs.issues_to_triage }}'
     steps:
       - name: 'Get repository labels'
         id: 'get_labels'
@@ -75,13 +76,23 @@ jobs:
           GH_TOKEN: '${{ secrets.GH_TOKEN || github.token }}'
         run: |-
           echo '🔍 Finding unlabeled issues and issues marked for triage...'
-          ISSUES="$(gh issue list \
+          # Two queries, merged: GitHub search ANDs terms, so a single query for
+          # both "no:label" and a label can never match anything.
+          UNLABELED="$(gh issue list \
             --state 'open' \
-            --search 'no:label label:"status/needs-triage"' \
+            --search 'no:label' \
             --json number,title,body \
             --limit '100' \
             --repo "${GITHUB_REPOSITORY}"
           )"
+          MARKED="$(gh issue list \
+            --state 'open' \
+            --label 'status/needs-triage' \
+            --json number,title,body \
+            --limit '100' \
+            --repo "${GITHUB_REPOSITORY}"
+          )"
+          ISSUES="$(jq -c -n --argjson a "${UNLABELED}" --argjson b "${MARKED}" '($a + $b) | unique_by(.number)')"
 
           echo '📝 Setting output for GitHub Actions...'
           echo "issues_to_triage=${ISSUES}" >> "${GITHUB_OUTPUT}"
@@ -165,6 +176,7 @@ jobs:
         env:
           AVAILABLE_LABELS: '${{ needs.triage.outputs.available_labels }}'
           TRIAGED_ISSUES: '${{ needs.triage.outputs.triaged_issues }}'
+          ISSUES_TO_TRIAGE: '${{ needs.triage.outputs.issues_to_triage }}'
         uses: 'actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3' # ratchet:actions/github-script@v9.0.0
         with:
           # Use the provided token so that the "gemini-cli" is the actor in the
@@ -180,6 +192,11 @@ jobs:
             const triagedIssues = (JSON.parse(process.env.TRIAGED_ISSUES || '{}'))
               .sort((a, b) => a.issue_number - b.issue_number)
 
+            // Only issues that were actually offered for triage may be relabeled; the
+            // issue numbers come from model output and must not be trusted blindly.
+            const offered = new Set((JSON.parse(process.env.ISSUES_TO_TRIAGE || '[]'))
+              .map((i) => Number(i.number)))
+
             core.debug(`Triaged issues: ${JSON.stringify(triagedIssues)}`);
 
             // Iterate over each label
@@ -192,6 +209,11 @@ jobs:
               const issueNumber = issue.issue_number;
               if (!issueNumber) {
                 core.debug(`Skipping issue with no data: ${JSON.stringify(issue)}`);
+                continue;
+              }
+
+              if (!offered.has(Number(issueNumber))) {
+                core.warning(`Skipping issue #${issueNumber} - it was not offered for triage.`);
                 continue;
               }
 
