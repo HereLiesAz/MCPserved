@@ -116,7 +116,7 @@ export class AdbLink implements Link {
     ];
     if (root) caps.push("SHELL_ROOT");
 
-    return { ok: true, caps, root, shizuku: true, a11y: false };
+    return { ok: true, caps, root, shizuku: true, a11y: false, adb: true };
   }
 
   private async sessionBegin(ttlSec: number): Promise<any> {
