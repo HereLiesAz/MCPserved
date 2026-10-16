@@ -34,6 +34,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.hereliesaz.mcpserved.service.ControlService
@@ -67,6 +68,7 @@ fun RemoteAccessScreen(vm: MainViewModel) {
     val ipv6Enabled by vm.ipv6Enabled.collectAsState()
     val cloudflareDeployState by vm.cloudflareDeployState.collectAsState()
     var cloudflareTokenInput by remember { mutableStateOf(vm.currentCloudflareApiToken()) }
+    var confirmForgetCloudflare by remember { mutableStateOf(false) }
     val tunnelState by vm.tunnelState.collectAsState()
     val namedTunnelState by vm.namedTunnelState.collectAsState()
     val stableAddressState by vm.stableAddressState.collectAsState()
@@ -82,6 +84,22 @@ fun RemoteAccessScreen(vm: MainViewModel) {
     var pendingEnable by remember { mutableStateOf<(() -> Unit)?>(null) }
     fun requestEnable(action: () -> Unit) {
         if (hasAcceptedDisclosure) action() else pendingEnable = action
+    }
+
+    if (confirmForgetCloudflare) {
+        AlertDialog(
+            onDismissRequest = { confirmForgetCloudflare = false },
+            title = { Text("Forget Cloudflare credentials?") },
+            text = { Text("Stops the named tunnel and erases local API/run tokens and the saved hostname. Revoke the API token separately in the Cloudflare dashboard.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    vm.clearCloudflareCredentials()
+                    cloudflareTokenInput = ""
+                    confirmForgetCloudflare = false
+                }) { Text("Forget credentials") }
+            },
+            dismissButton = { TextButton(onClick = { confirmForgetCloudflare = false }) { Text("Cancel") } }
+        )
     }
 
     pendingEnable?.let { action ->
@@ -441,22 +459,30 @@ fun RemoteAccessScreen(vm: MainViewModel) {
         }
         Spacer(Modifier.height(4.dp))
         Text(
-            "Opens Cloudflare's token page in your browser. Tap \"Create Token\" " +
-                "→ the \"Edit Cloudflare Workers\" template, then come back here " +
-                "and paste it in below.",
+            "Create a custom token. For a stable address grant Account → Cloudflare Tunnel:Edit, " +
+                "Zone → DNS:Edit, and Zone:Read, scoped to your own account and zone. " +
+                "For the separate relay Worker deployment grant Account → Workers Scripts:Edit.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
         Spacer(Modifier.height(8.dp))
         OutlinedTextField(
             value = cloudflareTokenInput,
-            onValueChange = {
-                cloudflareTokenInput = it
-                vm.setCloudflareApiToken(it)
-            },
+            onValueChange = { cloudflareTokenInput = it },
             label = { Text("Cloudflare API token") },
+            visualTransformation = PasswordVisualTransformation(),
+            singleLine = true,
             modifier = Modifier.fillMaxWidth()
         )
+        Spacer(Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = { vm.setCloudflareApiToken(cloudflareTokenInput) }) {
+                Text("Save token")
+            }
+            OutlinedButton(onClick = { confirmForgetCloudflare = true }) {
+                Text("Forget credentials")
+            }
+        }
         Spacer(Modifier.height(8.dp))
         Button(
             onClick = vm::deployCloudflareRelay,
