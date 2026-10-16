@@ -27,7 +27,7 @@ import { install, connect } from "./install.js";
  * device straight over `adb`; when the on-device app is installed, paired, and
  * reachable, the server upgrades to it for the richer accessibility surface
  * (semantic tree, per-app grants, notification mirror). `MCPSERVED_MODE` pins the
- * choice to `adb` or `app`; the default, `auto`, prefers the app and falls back.
+ * choice to `adb` or `app`; the default, `auto`, uses adb only when no pairing exists; a paired app failure is fatal.
  * `MCPSERVED_HOST` makes app mode dial that address directly instead of
  * `adb forward`-ing a loopback port — for an IPv6, UPnP-mapped, or LAN address
  * the device advertised opt-in (see remote-access.md), where there is no adb
@@ -51,8 +51,8 @@ import { install, connect } from "./install.js";
  *
  * In `auto` (or `app`) mode with a pairing on file, it probes the on-device app
  * once. If the app answers, that link — already connected — is used. Otherwise
- * `auto` falls back to adb and `app` fails loudly, since a pinned choice that
- * silently did something else would be worse than an error.
+ * both `auto` and `app` fail closed. Only an unpaired `auto` session uses adb;
+ * explicitly requesting `adb` always selects device-wide shell authority.
  */
 async function chooseLink(): Promise<Link> {
   const mode = (process.env.MCPSERVED_MODE ?? "auto").toLowerCase();
@@ -142,22 +142,23 @@ async function chooseLink(): Promise<Link> {
       const caps = await app.send({ op: "capabilities" }, 5_000);
       if (caps && caps.ok) return app;
     } catch {
-      // Unreachable app: fall through to the fallback below, unless an
-      // explicit host was given — see above.
+      // Unreachable paired app: fail closed instead of broadening authority.
     }
     app.close();
-    if (mode === "app" || explicitHost) {
+    {
       throw new Error(
         explicitHost
           ? `MCPSERVED_HOST=${explicitHost} did not answer. Check that the device is ` +
               "armed, remote access is enabled for that path, and the address/port are current."
-          : "MCPSERVED_MODE=app, but the on-device app did not answer over adb-forward. " +
+          : "Paired on-device app did not answer over adb-forward. " +
               "Check that it is installed, paired, and armed, and that the device is " +
-              "reachable (`adb devices`, or `adb connect <ip>:5555` for Wi-Fi).",
+              "reachable (`adb devices`, or `adb connect <ip>:5555` for Wi-Fi). " +
+              "No adb fallback is permitted for a paired device; explicitly set MCPSERVED_MODE=adb to use unrestricted adb.",
       );
     }
   }
 
+  // An unpaired auto session is the advertised app-free quick-connect path.
   return new AdbLink();
 }
 
