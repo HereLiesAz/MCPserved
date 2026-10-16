@@ -8,6 +8,7 @@ import com.hereliesaz.mcpserved.backend.Resolver
 import com.hereliesaz.mcpserved.grant.Enforcer
 import com.hereliesaz.mcpserved.grant.GrantStore
 import com.hereliesaz.mcpserved.macro.MacroStore
+import com.hereliesaz.mcpserved.macro.isRecordableStep
 import com.hereliesaz.mcpserved.transport.AppEntry
 import com.hereliesaz.mcpserved.transport.GrantEntry
 import com.hereliesaz.mcpserved.transport.MacroEntry
@@ -325,12 +326,15 @@ class Dispatcher(
             val native = runCatching {
                 val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                 cm.setPrimaryClip(ClipData.newPlainText("mcpserved", req.text))
-                cm.hasPrimaryClip()
+                // Read the description back: hasPrimaryClip() is true whenever *any*
+                // clip exists, so it cannot tell a dropped write from a landed one.
+                cm.primaryClipDescription?.label?.toString() == "mcpserved"
             }.getOrDefault(false)
 
             if (native) Result.success(Unit)
             else {
-                val escaped = req.text.replace("\\", "\\\\").replace("'", "'\\''")
+                // Inside single quotes a backslash is literal; only the quote needs escaping.
+                val escaped = req.text.replace("'", "'\\''")
                 resolver.shell("cmd clipboard set-primary-clip --text '$escaped'").map { }
             }
         }
@@ -386,6 +390,17 @@ class Dispatcher(
                 "macro '${req.name}' was recorded against ${macro.pkg}, but ${fg} is in the " +
                     "foreground — bring it forward first"
             )
+        }
+
+        // Replay only the shapes a macro is allowed to hold. A stored Shell, Launch,
+        // clipboard read or MacroRun step (or one that recurses) is refused before any
+        // step runs, rather than executed with the macro's authority.
+        macro.steps.indexOfFirst { !isRecordableStep(it) }.let { bad ->
+            if (bad >= 0) {
+                return Response.Err(
+                    "macro '${req.name}' contains a step that is not replayable (step ${bad + 1}/${macro.steps.size})"
+                )
+            }
         }
 
         macro.steps.forEachIndexed { i, step ->

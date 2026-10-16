@@ -83,8 +83,10 @@ class McpBridge(
         val arguments = params["arguments"] as? JsonObject ?: JsonObject(emptyMap())
 
         val reqJson = buildJsonObject {
+            // "op" last and never taken from the arguments: a tool named
+            // "capabilities" carrying {"op":"shell"} must not dispatch shell.
+            arguments.forEach { (k, v) -> if (k != "op") put(k, v) }
             put("op", name)
-            arguments.forEach { (k, v) -> put(k, v) }
         }
         val request = try {
             json.decodeFromJsonElement(Request.serializer(), reqJson)

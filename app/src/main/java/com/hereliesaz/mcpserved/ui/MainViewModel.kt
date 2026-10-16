@@ -252,7 +252,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     val stableAddressState: StateFlow<DeployState> = _stableAddressState
 
     /** Whether a named tunnel is already provisioned (a run token is stored). */
-    val stableAddressProvisioned: Boolean get() = cloudflareToken.namedTunnelRunToken.isNotBlank()
+    val stableAddressProvisioned: Boolean get() = namedTunnelReusable(cloudflareToken.namedTunnelHostname.trim())
+
+    /** A stored run token is only good for the hostname it was provisioned for. */
+    private fun namedTunnelReusable(host: String): Boolean =
+        cloudflareToken.namedTunnelRunToken.isNotBlank() &&
+            cloudflareToken.namedTunnelProvisionedHostname.equals(host, ignoreCase = true)
 
     /** Running state of the named tunnel itself (re-exported from the service). */
     val namedTunnelState: StateFlow<com.hereliesaz.mcpserved.service.ControlService.Companion.TunnelState> =
@@ -284,7 +289,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 }
             }
             val storedToken = cloudflareToken.namedTunnelRunToken
-            if (storedToken.isNotBlank()) {
+            if (storedToken.isNotBlank() && namedTunnelReusable(host)) {
                 if (serviceRunning) {
                     com.hereliesaz.mcpserved.service.ControlService.requestStartNamedTunnel(storedToken, host)
                 }
@@ -300,6 +305,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 is com.hereliesaz.mcpserved.transport.CloudflareNamedTunnel.Result.Success -> {
                     cloudflareToken.namedTunnelRunToken = r.runToken
                     cloudflareToken.namedTunnelHostname = r.hostname
+                    cloudflareToken.namedTunnelProvisionedHostname = r.hostname
                     val note = buildString { r.notes.forEach { if (isNotEmpty()) append(' '); append(it).append('.') } }
                         .trim().ifBlank { null }
                     _stableAddressState.value = DeployState.Done("https://${r.hostname}", note)

@@ -46,6 +46,19 @@ Tunnels proxy HTTP/WebSocket traffic only, never a raw TCP socket the way
 same sealed-frame protocol as `LocalServer`, just wrapped in WebSocket frames
 instead of raw bytes.
 
+**What the current app actually exposes.** The app now points the Quick Tunnel
+(and the stable-address *named* tunnel under "Remote access") at `McpServer`,
+the Streamable-HTTP MCP endpoint, so the public URL (`https://…/mcp`) is a
+bearer-token-authenticated remote MCP connector a cloud host can register
+directly. That is a different trust model from the sealed-frame paths:
+Cloudflare terminates TLS and can see the plaintext of every request and
+response (taps, typed text, screenshots, shell output), and the bearer token is
+the only boundary. Treat the URL and token like a password, rotate the token if
+either leaks, and prefer the sealed-frame paths if Cloudflare must not see the
+traffic. The WebSocket description above (`LocalWsServer`, `MCPSERVED_MODE=tunnel`
+via the npm server) is the older sealed-frame design and does not match what the
+app's tunnel button fronts today.
+
 **The catch, and it's the only one:** the address is ephemeral. It stops
 answering the moment the tunnel is stopped, the app is killed, or the phone
 reboots — there's no "reconnect to the same URL later," a fresh tap gets a
@@ -89,8 +102,10 @@ So:
 | **UPnP** | `LocalServer`'s sealed-frame protocol | "Let me skip hosting anything and just be reachable" — no relay, no third party, works only on a Wi-Fi network whose router supports it |
 | **Relay** | `LocalServer`'s sealed-frame protocol | "Let me run my own relay, for a stable address" — the same client/server code Quick Tunnel's `LocalWsServer` speaks, but reached through a room-pairing relay you deploy once rather than a fresh ephemeral tunnel every time; works from anywhere, including cellular. Deploying your own costs nothing and needs no server to maintain — see [Running a relay](#running-a-relay) below |
 
-`McpServer` never gets an IPv6, UPnP, or relay path. Exposing its plaintext-
-behind-a-token protocol straight to the internet, by any of the three
+`McpServer` never gets an IPv6, UPnP, or relay path. (The Cloudflare tunnels
+described above are the exception: they do front it, and Cloudflare can read the
+traffic — see the note in the Quick Tunnel section.) Exposing its plaintext-
+behind-a-token protocol straight to the internet, by any of those three
 mechanisms, would hand whoever finds it your taps, typed text, and shell
 output in the clear — the opposite of what any of them should buy you. If you
 want to be reachable directly or via a relay, it carries the already-encrypted

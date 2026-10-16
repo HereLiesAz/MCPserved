@@ -442,8 +442,10 @@ fun RemoteAccessScreen(vm: MainViewModel) {
         Spacer(Modifier.height(4.dp))
         Text(
             "Opens Cloudflare's token page in your browser. Tap \"Create Token\" " +
-                "→ the \"Edit Cloudflare Workers\" template, then come back here " +
-                "and paste it in below.",
+                "→ the \"Edit Cloudflare Workers\" template to deploy a relay. For a " +
+                "stable-address tunnel, create a custom token instead with Account → " +
+                "Cloudflare Tunnel: Edit, Zone → DNS: Edit and Zone → Zone: Read. Then " +
+                "come back here and paste it in below.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -455,6 +457,8 @@ fun RemoteAccessScreen(vm: MainViewModel) {
                 vm.setCloudflareApiToken(it)
             },
             label = { Text("Cloudflare API token") },
+            visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+            singleLine = true,
             modifier = Modifier.fillMaxWidth()
         )
         Spacer(Modifier.height(8.dp))

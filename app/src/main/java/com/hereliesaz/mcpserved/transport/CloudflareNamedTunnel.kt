@@ -172,12 +172,20 @@ class CloudflareNamedTunnel(private val appContext: Context) {
         client.newCall(authed("$API_BASE/zones/$zoneId/dns_records", token).post(recordBody).build())
             .execute().use { resp -> if (resp.isSuccessful) return null }
         // Create failed — a record for this name probably exists (e.g. a Worker
-        // custom domain). Update it to point at the tunnel instead.
+        // custom domain). Repoint it only if it is a CNAME: overwriting an A, MX or
+        // TXT record with a CNAME would silently destroy unrelated DNS.
         val existing = authed("$API_BASE/zones/$zoneId/dns_records?name=$hostname", token).get().build()
-        val recordId = client.newCall(existing).execute().use { resp ->
-            (bodyOf(resp)?.get("result") as? JsonArray)?.firstOrNull()
-                ?.jsonObject?.get("id")?.jsonPrimitive?.content
-        } ?: return "$hostname: couldn't create the DNS route and found no existing record to update."
+        val records = client.newCall(existing).execute().use { resp ->
+            (bodyOf(resp)?.get("result") as? JsonArray)?.mapNotNull { it as? JsonObject }
+        } ?: return "$hostname: couldn't create the DNS route and couldn't list the existing records."
+        val cname = records.firstOrNull { it["type"]?.jsonPrimitive?.content == "CNAME" }
+        val recordId = cname?.get("id")?.jsonPrimitive?.content
+            ?: return if (records.isEmpty()) {
+                "$hostname: couldn't create the DNS route and found no existing record to update."
+            } else {
+                "$hostname: a non-CNAME DNS record already exists for this name; it was left untouched — " +
+                    "remove it or pick another hostname."
+            }
         val putReq = authed("$API_BASE/zones/$zoneId/dns_records/$recordId", token).put(recordBody).build()
         client.newCall(putReq).execute().use { resp ->
             return if (resp.isSuccessful) null
@@ -193,19 +201,24 @@ class CloudflareNamedTunnel(private val appContext: Context) {
         }
     }
 
-    /** The owning zone's id for [hostname] — longest visible zone the hostname ends with. */
+    /**
+     * The owning zone's id for [hostname] — the longest zone name the hostname ends
+     * with. Looked up by exact name, longest candidate first, so it works on
+     * accounts with more zones than one list page returns.
+     */
     private fun findZoneId(token: String, hostname: String): String? {
-        val req = authed("$API_BASE/zones?per_page=50", token).get().build()
-        client.newCall(req).execute().use { resp ->
-            val results = (bodyOf(resp)?.get("result") as? JsonArray) ?: return null
-            return results.mapNotNull { it as? JsonObject }
-                .mapNotNull { z ->
-                    val name = z["name"]?.jsonPrimitive?.content ?: return@mapNotNull null
-                    val id = z["id"]?.jsonPrimitive?.content ?: return@mapNotNull null
-                    if (hostname == name || hostname.endsWith(".$name")) name to id else null
-                }
-                .maxByOrNull { it.first.length }?.second
+        val labels = hostname.split('.')
+        for (i in 0 until labels.size - 1) {
+            val candidate = labels.drop(i).joinToString(".")
+            val req = authed("$API_BASE/zones?name=$candidate", token).get().build()
+            val id = client.newCall(req).execute().use { resp ->
+                (bodyOf(resp)?.get("result") as? JsonArray)?.mapNotNull { it as? JsonObject }
+                    ?.firstOrNull { it["name"]?.jsonPrimitive?.content == candidate }
+                    ?.get("id")?.jsonPrimitive?.content
+            }
+            if (id != null) return id
         }
+        return null
     }
 
     private companion object {

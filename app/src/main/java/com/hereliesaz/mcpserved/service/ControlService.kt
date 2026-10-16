@@ -354,6 +354,11 @@ class ControlService : Service() {
         upnpMapper?.let { mapper -> scope.launch { mapper.unmapPort() } }
         _upnpMapping.value = null
         cloudflareTunnel?.stop()
+        // The named tunnel is a separate cloudflared process; without this it
+        // outlives the service while the UI still reports it as Running.
+        namedTunnel?.stop()
+        namedTunnel = null
+        _namedTunnelState.value = TunnelState.Idle
         if (::mediaProjectionBackend.isInitialized) mediaProjectionBackend.revoke()
         if (::server.isInitialized) scope.launch { server.stop() }
         scope.cancel()
