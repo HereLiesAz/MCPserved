@@ -30,12 +30,26 @@ const DEFAULT_MAX_PAYLOAD_BYTES = 8 * 1024 * 1024;
 const DEFAULT_RATE_LIMIT_PER_MINUTE = 60;
 
 function wrap(ws: WebSocket): PeerSocket {
+  // ws surfaces every inbound message as a Buffer and, given a Buffer, sends a
+  // binary frame. Forward text frames as strings so a text frame stays a text
+  // frame: the desktop host's java.net.http.WebSocket listener only implements
+  // onText and silently drops binary messages.
+  //
+  // An 'error' listener is mandatory: ws emits 'error' for protocol violations
+  // such as a frame over maxPayload, and an unhandled 'error' event on an
+  // EventEmitter throws and would take the whole relay (every room) down.
+  ws.on("error", () => {
+    ws.terminate();
+  });
   return {
     send: (data) => {
       if (ws.readyState === ws.OPEN) ws.send(data);
     },
     close: (code, reason) => ws.close(code, reason),
-    onMessage: (cb) => ws.on("message", (data) => cb(data as Buffer)),
+    onMessage: (cb) =>
+      ws.on("message", (data, isBinary) =>
+        cb(isBinary ? (data as Buffer) : (data as Buffer).toString("utf8")),
+      ),
     onClose: (cb) => ws.on("close", cb),
   };
 }
