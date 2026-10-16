@@ -9,14 +9,17 @@
       read the screen and dispatch input on the user's behalf. It is also the
       permission most abused by malware, which is why the app is inert until the
       user grants specific packages, why every session is time-boxed and shown in
-      an ongoing notification, and why control arrives, by default, only over a
-      local loopback port the user bridges themselves — never from the network.
+      an ongoing notification, and why control arrives, by default, only over the
+      sealed-frame control port (8790): bound to every interface so a paired
+      desktop can reach it over the LAN as well as through an `adb forward`
+      tunnel, and useless to anyone without the pairing key.
     - INTERNET is required by the platform to open any socket, including the
-      loopback ServerSocket the control channel binds to 127.0.0.1. By default
-      the app makes no outbound or remote connections: the only reachable
-      listener is on loopback, reached through an `adb forward` tunnel the user
-      sets up. Two paths widen this, and both are off by default and require an
-      explicit toggle on the "Remote access" screen: binding the on-device MCP
+      ServerSocket the control channel binds on port 8790 (all interfaces; every
+      frame is authenticated and encrypted under the pairing key, and an
+      unpaired peer gets silence). By default the app makes no outbound or
+      remote connections: the control listener is reached over the local
+      network or through an `adb forward` tunnel the user sets up. Two paths widen this, and both
+      are off by default and require an explicit toggle on the "Remote access" screen: binding the on-device MCP
       endpoint to every interface (for a private mesh like Tailscale/WireGuard
       the user installs and joins separately), and dialing out to an operator-
       configured relay for the sealed-frame protocol (see
@@ -98,7 +101,7 @@
             android:foregroundServiceType="specialUse|mediaProjection">
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="User-authorized on-device automation, reachable by default only over a local loopback connection; remote access is opt-in" />
+                android:value="User-authorized on-device automation, controlled over an encrypted, pairing-key-authenticated local connection (LAN or adb forward); internet remote access is opt-in" />
         </service>
 
         <service

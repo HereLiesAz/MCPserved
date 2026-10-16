@@ -190,9 +190,9 @@ prefers the app and falls back.
 
 ## Not yet done
 
-- `MediaProjection` capture is declared as a capability but has no
-  implementation; unrooted devices currently cannot screenshot through the app
-  (the adb backend's `screencap` works regardless).
+- `MediaProjection` capture (`backend/MediaProjectionBackend.kt`) implements a
+  one-shot screenshot but requires the user's screen-capture consent and has had
+  little real-device exercise.
 - Launcher icon is the template's.
 - Test coverage is thin — the sealed-frame session logic and the relay's room
   pairing have unit tests; most of the rest does not yet.
@@ -213,5 +213,6 @@ relay/    Opt-in relay server — a blind byte-pipe pairing one device connectio
 The desktop side lives in `desktop/` as a Compose for Desktop module. It shares
 the sealed-frame wire format (X25519 / HKDF-SHA256 / ChaCha20-Poly1305) with the
 Android app byte for byte, so the Kotlin `crypto/` package and the device's
-`crypto/` package must stay in lockstep. `.github/workflows/desktop.yml` builds
-the installers on a three-OS matrix (jpackage can only target its host).
+`crypto/` package must stay in lockstep. Installers are built with jpackage,
+which can only target its host OS, so each platform's installer must be built on
+that platform (there is currently no CI workflow for it).
