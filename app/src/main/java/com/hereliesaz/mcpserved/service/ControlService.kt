@@ -266,12 +266,11 @@ class ControlService : Service() {
             // desktop bridge is unaffected, so the service stays useful.
             Log.w(TAG, "on-device MCP endpoint failed to bind; the desktop bridge still works")
         }
-        // Loopback-only and reachable only through a tunnel the operator
-        // explicitly starts (CloudflareTunnel) — always on, same as the two
-        // servers above, since nothing off-device can reach it unless
-        // something else already chose to expose it.
+        // Legacy sealed-frame WebSocket endpoint, loopback-only. Quick and
+        // Named Cloudflare tunnels now forward the bearer-authenticated HTTP
+        // McpServer; this endpoint remains local, not publicly tunneled.
         if (!localWsServer.startServer()) {
-            Log.w(TAG, "local WebSocket endpoint failed to bind; tunnel-based reachability is unavailable this run")
+            Log.w(TAG, "local sealed-frame WebSocket endpoint failed to bind")
         }
 
         // Relay dial-out is opt-in and off by default. Unlike the wildcard MCP
