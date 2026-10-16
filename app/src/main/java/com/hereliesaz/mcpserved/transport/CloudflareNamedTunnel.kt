@@ -162,6 +162,7 @@ class CloudflareNamedTunnel(private val appContext: Context) {
             if (!resp.isSuccessful) return "$hostname: could not verify existing DNS records (HTTP ${resp.code})."
             val records = bodyOf(resp)?.get("result") as? JsonArray
                 ?: return "$hostname: could not parse existing DNS records."
+            if (records.size >= 100) return "$hostname: DNS record lookup is incomplete; refusing an overwrite."
             val exact = records.mapNotNull { it as? JsonObject }
                 .filter { it["name"]?.jsonPrimitive?.content.equals(hostname, ignoreCase = true) }
             if (exact.size > 1) return "$hostname: multiple DNS records already exist; resolve them manually."
