@@ -143,7 +143,6 @@ jobs:
         id: gradle-build
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_TOKEN: ${{ secrets.GH_TOKEN }}
           # Consumed by the signingConfigs.release block in app/build.gradle.kts. The debug build type
           # uses this release config when the keystore is present (see app/build.gradle.kts), keeping
           # the auto-published artifact's signature stable; absent it, the default debug key is used.
