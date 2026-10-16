@@ -252,7 +252,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     val stableAddressState: StateFlow<DeployState> = _stableAddressState
 
     /** Whether a named tunnel is already provisioned (a run token is stored). */
-    val stableAddressProvisioned: Boolean get() = cloudflareToken.namedTunnelRunToken.isNotBlank()
+    val stableAddressProvisioned: Boolean get() = cloudflareToken.namedTunnelRunToken.isNotBlank() &&
+        cloudflareToken.provisionedHostname == cloudflareToken.namedTunnelHostname.trim()
 
     /** Running state of the named tunnel itself (re-exported from the service). */
     val namedTunnelState: StateFlow<com.hereliesaz.mcpserved.service.ControlService.Companion.TunnelState> =
@@ -283,11 +284,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     _statusTick.value++
                 }
             }
+            if (!serviceRunning) {
+                _stableAddressState.value = DeployState.Error("Couldn't start the control service.")
+                return@launch
+            }
             val storedToken = cloudflareToken.namedTunnelRunToken
-            if (storedToken.isNotBlank()) {
-                if (serviceRunning) {
-                    com.hereliesaz.mcpserved.service.ControlService.requestStartNamedTunnel(storedToken, host)
-                }
+            if (storedToken.isNotBlank() && cloudflareToken.provisionedHostname == host) {
+                _stableAddressState.value = DeployState.Idle
+                com.hereliesaz.mcpserved.service.ControlService.requestStartNamedTunnel(storedToken, host)
                 return@launch
             }
             val apiToken = cloudflareToken.value
@@ -299,6 +303,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             when (val r = namedTunnelDeployer.provision(apiToken, host)) {
                 is com.hereliesaz.mcpserved.transport.CloudflareNamedTunnel.Result.Success -> {
                     cloudflareToken.namedTunnelRunToken = r.runToken
+                    cloudflareToken.provisionedHostname = r.hostname
                     cloudflareToken.namedTunnelHostname = r.hostname
                     val note = buildString { r.notes.forEach { if (isNotEmpty()) append(' '); append(it).append('.') } }
                         .trim().ifBlank { null }
@@ -334,6 +339,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
      * starts blank looks exactly like it never saved.
      */
     fun currentCloudflareApiToken(): String = cloudflareToken.value
+
+    /** Local erase only; revoke the Cloudflare API token in its dashboard separately. */
+    fun clearCloudflareCredentials() {
+        stopStableAddress()
+        cloudflareToken.clear()
+        _stableAddressState.value = DeployState.Idle
+        _cloudflareDeployState.value = DeployState.Idle
+    }
 
     /**
      * Deploys `relay/cloudflare/worker.js` (bundled as an asset) to the
