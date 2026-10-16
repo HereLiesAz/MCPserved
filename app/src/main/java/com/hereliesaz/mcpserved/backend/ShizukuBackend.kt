@@ -143,8 +143,12 @@ class ShizukuBackend : ControlBackend {
         return sh("input keyevent $code").map { }
     }
 
-    override suspend fun launch(pkg: String): Result<Unit> =
-        sh("monkey -p $pkg -c android.intent.category.LAUNCHER 1").map { }
+    override suspend fun launch(pkg: String): Result<Unit> {
+        if (!Regex("""[A-Za-z_][A-Za-z0-9_.]*""").matches(pkg)) {
+            return Result.failure(IllegalArgumentException("Invalid package name"))
+        }
+        return sh("monkey -p '$pkg' -c android.intent.category.LAUNCHER 1").map { }
+    }
 
     /** Shell uid cannot read the framebuffer; MediaProjection owns this path. */
     override suspend fun capture(maxPx: Int): Result<CapturedImage> =
