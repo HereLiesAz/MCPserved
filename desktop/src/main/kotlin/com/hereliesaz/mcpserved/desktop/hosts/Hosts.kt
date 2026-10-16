@@ -112,7 +112,12 @@ object Hosts {
     fun stdioLaunch(): Launch {
         val self = ProcessHandle.current().info().command().orElse("mcpserved")
         val env = buildMap {
-            for (k in listOf("MCPSERVED_MODE", "MCPSERVED_ADB_SERIAL", "MCPSERVED_ADB", "MCPSERVED_PORT")) {
+            val vars = listOf(
+                "MCPSERVED_MODE", "MCPSERVED_ADB_SERIAL", "MCPSERVED_ADB", "MCPSERVED_PORT",
+                // Relay and explicit-host modes are useless without their address.
+                "MCPSERVED_RELAY_URL", "MCPSERVED_RELAY_ROOM", "MCPSERVED_HOST",
+            )
+            for (k in vars) {
                 System.getenv(k)?.let { put(k, it) }
             }
         }

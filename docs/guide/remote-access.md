@@ -34,7 +34,9 @@ MCPSERVED_MODE=tunnel MCPSERVED_HOST=https://random-words-here.trycloudflare.com
 mcpserved install claude-code
 ```
 
-That's genuinely the whole setup. `MCPSERVED_HOST` here is a full URL, not a
+That's genuinely the whole setup. (`MCPSERVED_MODE=tunnel` is implemented by the
+npm `mcpserved` server only; the Kotlin desktop app rejects it with an error
+rather than silently using adb.) `MCPSERVED_HOST` here is a full URL, not a
 bare address the way it is for the IPv6/UPnP paths below — `mcpserved` dials
 it directly over WebSocket (see `mcp/src/tunnel-link.ts`), since Quick
 Tunnels proxy HTTP/WebSocket traffic only, never a raw TCP socket the way
