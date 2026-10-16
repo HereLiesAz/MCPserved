@@ -145,8 +145,7 @@ async function chooseLink(): Promise<Link> {
       // Unreachable paired app: fail closed instead of broadening authority.
     }
     app.close();
-    {
-      throw new Error(
+    throw new Error(
         explicitHost
           ? `MCPSERVED_HOST=${explicitHost} did not answer. Check that the device is ` +
               "armed, remote access is enabled for that path, and the address/port are current."
@@ -154,8 +153,7 @@ async function chooseLink(): Promise<Link> {
               "Check that it is installed, paired, and armed, and that the device is " +
               "reachable (`adb devices`, or `adb connect <ip>:5555` for Wi-Fi). " +
               "No adb fallback is permitted for a paired device; explicitly set MCPSERVED_MODE=adb to use unrestricted adb.",
-      );
-    }
+    );
   }
 
   // An unpaired auto session is the advertised app-free quick-connect path.
