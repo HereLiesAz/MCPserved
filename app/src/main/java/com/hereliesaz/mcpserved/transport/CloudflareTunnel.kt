@@ -160,12 +160,12 @@ class CloudflareTunnel(private val appContext: Context) {
         when (val outcome = awaitUrl(proc, extract)) {
             is AwaitOutcome.Found -> Result.Success(outcome.url)
             is AwaitOutcome.TimedOut -> {
-                proc.destroy()
-                process = null
+                proc.destroyForcibly()
+                if (process === proc) process = null
                 Result.Failure("cloudflared $missedWhat within ${TIMEOUT_MS / 1000}s." + outcome.lastLines.asDiagnostic())
             }
             is AwaitOutcome.ProcessExited -> {
-                process = null
+                if (process === proc) process = null
                 Result.Failure("cloudflared exited before it $missedWhat." + outcome.lastLines.asDiagnostic())
             }
         }
