@@ -139,9 +139,12 @@ class CloudflareTunnel(private val appContext: Context) {
             )
         }
         runCatching {
-            val proc = ProcessBuilder(binary.absolutePath, "tunnel", "run", "--token", token)
+            // Cloudflare supports TUNNEL_TOKEN. Keep the credential out of
+            // argv / ps output (the process environment is still sensitive).
+            val builder = ProcessBuilder(binary.absolutePath, "tunnel", "run")
                 .redirectErrorStream(true)
-                .start()
+            builder.environment()["TUNNEL_TOKEN"] = token
+            val proc = builder.start()
             process = proc
             awaitOutcome(proc, "didn't register a tunnel connection") { line ->
                 if (REGISTERED_PATTERN.containsMatchIn(line)) "https://$hostname" else null
@@ -169,7 +172,7 @@ class CloudflareTunnel(private val appContext: Context) {
 
     /** Kills the tunnel process, if one is running. The public URL stops working immediately. */
     fun stop() {
-        process?.destroy()
+        process?.destroyForcibly()
         process = null
     }
 
