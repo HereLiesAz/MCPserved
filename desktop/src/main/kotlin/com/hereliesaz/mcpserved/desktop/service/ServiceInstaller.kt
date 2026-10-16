@@ -27,6 +27,14 @@ object ServiceInstaller {
     /** This running executable — the jpackage launcher once installed. */
     private fun self(): String = ProcessHandle.current().info().command().orElse("mcpserved")
 
+    /** [self] quoted for a systemd `ExecStart=` line (spaces, quotes, backslashes and `%` specifiers). */
+    private fun selfForSystemd(): String =
+        "\"" + self().replace("\\", "\\\\").replace("\"", "\\\"").replace("%", "%%") + "\""
+
+    /** [self] escaped for an XML `<string>` element in a launchd plist. */
+    private fun selfForXml(): String =
+        self().replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
     private data class Exec(val code: Int, val output: String)
 
     private fun run(vararg cmd: String): Exec = try {
@@ -68,7 +76,7 @@ object ServiceInstaller {
             After=network-online.target
 
             [Service]
-            ExecStart=${self()} service
+            ExecStart=${selfForSystemd()} service
             Restart=on-failure
             RestartSec=5
 
@@ -119,7 +127,7 @@ object ServiceInstaller {
                 <key>Label</key><string>$LABEL</string>
                 <key>ProgramArguments</key>
                 <array>
-                    <string>${self()}</string>
+                    <string>${selfForXml()}</string>
                     <string>service</string>
                 </array>
                 <key>RunAtLoad</key><true/>

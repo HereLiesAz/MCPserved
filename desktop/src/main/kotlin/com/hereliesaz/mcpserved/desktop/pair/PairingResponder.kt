@@ -53,17 +53,42 @@ class PairingResponder {
         }
         server = socket
         executor.execute {
+            // Keep accepting until a valid submission arrives or the window closes: a
+            // LAN host that merely connects (or sends junk) must not be able to burn
+            // the whole pairing window with a single connection.
+            val deadline = System.currentTimeMillis() + LISTEN_TIMEOUT_MS
             try {
-                socket.accept().use { client ->
-                    client.soTimeout = READ_TIMEOUT_MS
-                    val line = BufferedReader(InputStreamReader(client.getInputStream())).readLine()
-                        ?: throw IllegalStateException("connection closed with no data")
-                    onResult(Result.success(parse(line, token)))
+                var lastError: Exception? = null
+                while (true) {
+                    val remaining = (deadline - System.currentTimeMillis()).toInt()
+                    if (remaining <= 0) {
+                        onResult(
+                            Result.failure(
+                                lastError ?: IllegalStateException("no phone connected within the pairing window"),
+                            ),
+                        )
+                        return@execute
+                    }
+                    socket.soTimeout = remaining
+                    try {
+                        socket.accept().use { client ->
+                            client.soTimeout = READ_TIMEOUT_MS
+                            val line = BufferedReader(InputStreamReader(client.getInputStream())).readLine()
+                                ?: throw IllegalStateException("connection closed with no data")
+                            onResult(Result.success(parse(line, token)))
+                        }
+                        return@execute
+                    } catch (_: SocketTimeoutException) {
+                        // Either the accept window ended or this client stalled; the loop
+                        // re-checks the deadline and keeps listening if time remains.
+                    } catch (e: java.net.SocketException) {
+                        // The listening socket was closed by stop().
+                        onResult(Result.failure(e))
+                        return@execute
+                    } catch (e: Exception) {
+                        lastError = e
+                    }
                 }
-            } catch (_: SocketTimeoutException) {
-                onResult(Result.failure(IllegalStateException("no phone connected within the pairing window")))
-            } catch (e: Exception) {
-                onResult(Result.failure(e))
             } finally {
                 stop()
             }

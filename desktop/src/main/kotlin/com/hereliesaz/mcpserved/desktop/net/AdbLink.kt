@@ -257,7 +257,11 @@ class AdbLink : Link {
     }
 
     private fun type(req: JsonObject): JsonObject {
-        req.str("nodeId")?.let { id -> nodeCenters[id]?.let { Adb.shellText("input tap ${it[0]} ${it[1]}") } }
+        req.str("nodeId")?.let { id ->
+            // An unknown node must not degrade to typing into whatever has focus.
+            val c = nodeCenters[id] ?: return err("unknown node id — call ui_tree first")
+            Adb.shellText("input tap ${c[0]} ${c[1]}")
+        }
         // `input text` takes spaces as %s and cannot express newlines or most
         // non-ASCII. Good enough for field entry; the app path handles the rest.
         val encoded = (req.str("text") ?: "").replace(" ", "%s")

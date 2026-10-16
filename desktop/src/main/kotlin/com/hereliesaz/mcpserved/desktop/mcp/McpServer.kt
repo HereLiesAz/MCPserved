@@ -37,6 +37,7 @@ import kotlinx.serialization.json.jsonObject
 object McpServer {
 
     private const val LATEST_PROTOCOL = "2025-06-18"
+    private val SUPPORTED_PROTOCOLS = setOf("2024-11-05", "2025-03-26", "2025-06-18")
     private const val SERVER_VERSION = "0.4.0"
 
     private fun log(msg: String) = System.err.println(msg)
@@ -255,7 +256,10 @@ object McpServer {
     }
 
     private fun initializeResult(params: JsonObject?): JsonObject {
-        val requested = params?.str("protocolVersion") ?: LATEST_PROTOCOL
+        // Echo the client's version only if this server speaks it; otherwise answer
+        // with the latest it does and let the client decide whether to proceed
+        // (MCP lifecycle: the server responds with a version it supports).
+        val requested = params?.str("protocolVersion")?.takeIf { it in SUPPORTED_PROTOCOLS } ?: LATEST_PROTOCOL
         return buildJsonObject {
             put("protocolVersion", JsonPrimitive(requested))
             put("capabilities", buildJsonObject { put("tools", buildJsonObject { }) })
