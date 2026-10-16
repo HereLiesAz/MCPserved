@@ -73,7 +73,12 @@ Every protocol frame is sealed with ChaCha20-Poly1305 (`crypto/Frame.kt`,
   frame cannot be replayed against a different device even by a peer that forwards
   it there.
 - **Replay / monotonic sequence:** `open()` rejects any sequence `<=` the highest
-  accepted (`throw Invalid`/`InvalidFrame`), closing replay entirely. The high-water
+  accepted (`throw Invalid`/`InvalidFrame`), closing replay within a connection.
+  Across connections, the keys are a function of the pairing secret and the
+  peer-chosen Hello salt, so the device refuses a Hello salt it has already
+  consumed (an in-memory set plus a persisted window of the last 512 digests);
+  without that, a recorded session replayed with the same salt would re-derive the
+  same keys and restart the counter. The high-water
   mark advances **only after the tag verifies** — advancing on receipt would let
   anyone reaching the socket burn sequence numbers with garbage and stall the real
   peer.

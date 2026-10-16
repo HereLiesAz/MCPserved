@@ -38,6 +38,9 @@ class LocalWsServer(
 
     private val session = FrameSession(pairing, dispatcher)
 
+    /** Live sockets, so an unauthenticated flood cannot pin unbounded coroutines and memory. */
+    private val openSockets = java.util.concurrent.atomic.AtomicInteger(0)
+
     /** Starts listening. Returns false if the port could not be bound. */
     fun startServer(): Boolean = try {
         start(NanoHTTPD.SOCKET_READ_TIMEOUT, true)
@@ -56,7 +59,9 @@ class LocalWsServer(
 
     private inner class ServerWebSocket(handshakeRequest: IHTTPSession) : WebSocket(handshakeRequest) {
 
-        private val incoming = Channel<String?>(Channel.UNLIMITED)
+        // Bounded: a peer that floods frames faster than the session drains them
+        // is cut off (see onMessage) rather than queued without limit.
+        private val incoming = Channel<String?>(INCOMING_CAPACITY)
 
         private val stream = object : FrameStream {
             override suspend fun readLine(): String? = incoming.receiveCatching().getOrNull()
@@ -74,10 +79,16 @@ class LocalWsServer(
         }
 
         override fun onOpen() {
+            if (openSockets.incrementAndGet() > MAX_SOCKETS) {
+                openSockets.decrementAndGet()
+                stream.close()
+                return
+            }
             scope.launch {
                 try {
                     session.run(stream, isActive = { scope.isActive })
                 } finally {
+                    openSockets.decrementAndGet()
                     stream.close()
                 }
             }
@@ -89,7 +100,7 @@ class LocalWsServer(
 
         override fun onMessage(message: WebSocketFrame) {
             if (message.opCode == WebSocketFrame.OpCode.Text) {
-                incoming.trySend(message.textPayload)
+                if (incoming.trySend(message.textPayload).isFailure) stream.close()
             }
         }
 
@@ -105,6 +116,10 @@ class LocalWsServer(
 
         /** Distinct from [LocalServer.DEFAULT_PORT] and [McpServer.DEFAULT_HTTP_PORT] — a third, WS-only listener. */
         const val DEFAULT_PORT = 8795
+
+        /** Concurrent WebSocket connections served; the device has one controller, so this is generous. */
+        private const val MAX_SOCKETS = 8
+        private const val INCOMING_CAPACITY = 64
         private const val LOOPBACK = "127.0.0.1"
     }
 }

@@ -185,6 +185,57 @@ class FrameSessionTest {
     }
 
     @Test
+    fun `a replayed Hello salt is refused and never dispatches`() = runTest {
+        val devicePriv = X25519PrivateKeyParameters(SecureRandom())
+        val devicePub = devicePriv.generatePublicKey()
+        val peerPriv = X25519PrivateKeyParameters(SecureRandom())
+        val peerPub = peerPriv.generatePublicKey()
+        val deviceId = "test-device-id"
+
+        var handlerCalls = 0
+        val handler = RequestHandler { handlerCalls++; Response.Ack() }
+        val session = FrameSession(FakeKeyPairing(deviceId, devicePriv, peerPub), handler)
+
+        val salt = ByteArray(16).also { SecureRandom().nextBytes(it) }
+        val shared = sharedSecret(peerPriv, devicePub)
+        val aad = deviceId.toByteArray()
+        val hello = json.encodeToString(
+            Hello(PROTO_VERSION, Base64.encodeToString(salt, Base64.NO_WRAP or Base64.URL_SAFE)),
+        )
+
+        suspend fun connectOnce(): FrameSession.EndReason {
+            val codec = FrameCodec(
+                sealKey = hkdf(shared, salt, "mcpserved s2d v1"),
+                openKey = hkdf(shared, salt, "mcpserved d2s v1"),
+            )
+            val stream = TestFrameStream()
+            stream.inbound.trySend(hello)
+            val sealed = codec.seal(json.encodeToString<Request>(Request.Capabilities).toByteArray(), aad)
+            stream.inbound.trySend(json.encodeToString(Envelope(deviceId, sealed.seq, sealed.payloadB64)))
+            stream.inbound.close()
+            return session.run(stream)
+        }
+
+        // The first connection with this salt is served normally.
+        assertEquals(FrameSession.EndReason.STREAM_CLOSED, connectOnce())
+        assertEquals(1, handlerCalls)
+
+        // Recording that connection and replaying it (same salt, same frames) is dropped.
+        assertEquals(FrameSession.EndReason.STREAM_CLOSED, connectOnce())
+        assertEquals("replayed session must not reach the handler", 1, handlerCalls)
+    }
+
+    @Test
+    fun `a peer that never sends Hello is dropped after the timeout`() = runTest {
+        val devicePriv = X25519PrivateKeyParameters(SecureRandom())
+        val peerPub = X25519PrivateKeyParameters(SecureRandom()).generatePublicKey()
+        val session = FrameSession(FakeKeyPairing("device", devicePriv, peerPub)) { Response.Ack() }
+        val stream = TestFrameStream() // never receives a line, never closes
+
+        assertEquals(FrameSession.EndReason.STREAM_CLOSED, session.run(stream))
+    }
+
+    @Test
     fun `a Hello at the wrong protocol version ends the session without dispatching`() = runTest {
         val devicePriv = X25519PrivateKeyParameters(SecureRandom())
         val peerPub = X25519PrivateKeyParameters(SecureRandom()).generatePublicKey()

@@ -25,6 +25,13 @@ import java.util.UUID
 interface KeyPairing {
     val deviceId: String
     fun deriveKeys(salt: ByteArray): Pairing.FrameKeys?
+
+    /**
+     * Records [salt] as consumed and returns false if it was used before, so a
+     * recorded handshake cannot be replayed (see [Pairing.claimSalt]). The default
+     * accepts everything; [FrameSession] additionally keeps its own in-memory set.
+     */
+    fun claimSalt(salt: ByteArray): Boolean = true
 }
 
 /**
@@ -233,6 +240,22 @@ class Pairing(ctx: Context) : KeyPairing {
         )
     }
 
+    /**
+     * Persistent replay guard for handshake salts: remembers a digest of the most
+     * recent [MAX_SALTS] salts across process restarts and rejects a repeat.
+     */
+    @Synchronized
+    override fun claimSalt(salt: ByteArray): Boolean {
+        val digest = Base64.encodeToString(
+            java.security.MessageDigest.getInstance("SHA-256").digest(salt).copyOf(12),
+            Base64.NO_WRAP or Base64.URL_SAFE,
+        )
+        val seen = prefs.getString(KEY_SALTS, "").orEmpty().split(',').filter { it.isNotEmpty() }
+        if (digest in seen) return false
+        prefs.edit().putString(KEY_SALTS, (seen + digest).takeLast(MAX_SALTS).joinToString(",")).apply()
+        return true
+    }
+
     private fun hkdf(secret: ByteArray, salt: ByteArray, info: String): ByteArray {
         val out = ByteArray(32)
         HKDFBytesGenerator(SHA256Digest()).apply {
@@ -258,5 +281,7 @@ class Pairing(ctx: Context) : KeyPairing {
         const val KEY_PRIV = "priv"
         const val KEY_PUB = "pub"
         const val KEY_PEER_PUB = "peer_pub"
+        private const val KEY_SALTS = "used_salts"
+        private const val MAX_SALTS = 512
     }
 }

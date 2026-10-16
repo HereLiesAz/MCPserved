@@ -5,6 +5,7 @@ import com.hereliesaz.mcpserved.crypto.FrameCodec
 import com.hereliesaz.mcpserved.crypto.KeyPairing
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -70,6 +71,20 @@ class FrameSession(
 ) {
     enum class EndReason { STREAM_CLOSED, UNPAIRED, STOPPED }
 
+    /**
+     * Salts already consumed by a handshake, newest last.
+     *
+     * The device contributes no entropy to the key derivation: the keys are a
+     * function of the static X25519 secret and the peer-chosen salt alone. A
+     * recorded session could therefore be replayed verbatim on a new connection
+     * (same salt -> same keys -> the frame counter restarts at zero and the old
+     * frames open again, and the device would seal fresh replies under the old
+     * key+nonce pairs). Refusing a salt that was already used closes that without
+     * changing the wire format; an honest peer picks a fresh random salt per
+     * connection, so it never collides.
+     */
+    private val usedSalts = LinkedHashSet<String>()
+
     private val json = Json {
         ignoreUnknownKeys = true
         encodeDefaults = true
@@ -92,13 +107,19 @@ class FrameSession(
         isActive: () -> Boolean = { true },
         onConnected: () -> Unit = {},
     ): EndReason {
-        val helloLine = stream.readLine() ?: return EndReason.STREAM_CLOSED
+        // Bound the wait for the opening Hello. Without it a peer that connects
+        // and says nothing pins this session (and, for [LocalServer], the single
+        // serving slot) forever. Returning closes the stream via the caller.
+        val helloLine = withTimeoutOrNull(HELLO_TIMEOUT_MS) { stream.readLine() }
+            ?: return EndReason.STREAM_CLOSED
         val hello = runCatching { json.decodeFromString<Hello>(helloLine) }.getOrNull()
             ?: return EndReason.STREAM_CLOSED
         if (hello.v != PROTO_VERSION) return EndReason.STREAM_CLOSED
         val salt = runCatching {
             Base64.decode(hello.salt, Base64.NO_WRAP or Base64.URL_SAFE)
         }.getOrNull() ?: return EndReason.STREAM_CLOSED
+
+        if (!claimSalt(salt) || !pairing.claimSalt(salt)) return EndReason.STREAM_CLOSED
 
         val keys = pairing.deriveKeys(salt) ?: return EndReason.UNPAIRED
         val codec = FrameCodec(sealKey = keys.deviceToServer, openKey = keys.serverToDevice)
@@ -130,5 +151,20 @@ class FrameSession(
             stream.writeLine(json.encodeToString(reply))
         }
         return EndReason.STOPPED
+    }
+
+    /** Records [salt] as used; false if it was already seen (a replayed handshake). */
+    private fun claimSalt(salt: ByteArray): Boolean = synchronized(usedSalts) {
+        val key = Base64.encodeToString(salt, Base64.NO_WRAP)
+        if (!usedSalts.add(key)) return false
+        if (usedSalts.size > MAX_REMEMBERED_SALTS) usedSalts.remove(usedSalts.first())
+        true
+    }
+
+    companion object {
+        /** How long a connection may sit without sending its Hello. */
+        const val HELLO_TIMEOUT_MS = 10_000L
+
+        private const val MAX_REMEMBERED_SALTS = 1024
     }
 }
