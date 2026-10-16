@@ -336,7 +336,7 @@ val verifyCloudflaredBinaries = tasks.register("verifyCloudflaredBinaries") {
             val binary = project.file("src/main/jniLibs/$abi/libcloudflared.so")
             check(binary.isFile) { "Missing bundled cloudflared for $abi" }
             val digest = MessageDigest.getInstance("SHA-1")
-            digest.update("blob ${binary.length()}\\u0000".toByteArray(Charsets.UTF_8))
+            digest.update("blob ${binary.length()}\u0000".toByteArray(Charsets.UTF_8))
             binary.inputStream().buffered().use { input ->
                 val buffer = ByteArray(8192)
                 while (true) {
