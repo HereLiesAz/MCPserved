@@ -11,7 +11,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 /**
  * Runs Cloudflare's `cloudflared` as a subprocess in "Quick Tunnel" mode
  * (`cloudflared tunnel --url http://127.0.0.1:<port>`), exposing
- * [LocalWsServer] at a random public `https://…trycloudflare.com` address —
+ * [McpServer] at a random public `https://…trycloudflare.com` address —
  * anonymous, no Cloudflare account, no login, alive only as long as this
  * process runs. This is what makes a relay possible with nothing pre-
  * deployed: the phone creates the tunnel itself, hands the resulting address
