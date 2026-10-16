@@ -176,8 +176,12 @@ class RootBackend(overrideAvailable: Boolean? = null) : ControlBackend {
         return su("input keyevent $code").map { }
     }
 
-    override suspend fun launch(pkg: String): Result<Unit> =
-        su("monkey -p $pkg -c android.intent.category.LAUNCHER 1").map { }
+    override suspend fun launch(pkg: String): Result<Unit> {
+        if (!Regex("""[A-Za-z_][A-Za-z0-9_.]*""").matches(pkg)) {
+            return Result.failure(IllegalArgumentException("Invalid package name"))
+        }
+        return su("monkey -p '$pkg' -c android.intent.category.LAUNCHER 1").map { }
+    }
 
     /**
      * Captures the screen with `screencap -p`, bypassing the MediaProjection
