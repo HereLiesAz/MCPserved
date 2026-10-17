@@ -311,13 +311,16 @@ dependencies {
 val verifyCloudflaredBinaries = tasks.register("verifyCloudflaredBinaries") {
     group = "verification"
     description = "Verify the exact checked-in cloudflared ARM executables."
+    // Resolved at configuration time: touching `project` inside doLast is rejected by the
+    // configuration cache.
+    val jniLibsDir = layout.projectDirectory.dir("src/main/jniLibs")
     doLast {
         val expected = mapOf(
             "arm64-v8a" to "b96ce1ff861edb895fd1a87c0d67b31391591efc",
             "armeabi-v7a" to "0142aad65724c21a93e83177142708334260a04d",
         )
         expected.forEach { (abi, gitBlobSha) ->
-            val binary = project.file("src/main/jniLibs/$abi/libcloudflared.so")
+            val binary = jniLibsDir.file("$abi/libcloudflared.so").asFile
             check(binary.isFile) { "Missing bundled cloudflared for $abi" }
             val digest = MessageDigest.getInstance("SHA-1")
             digest.update("blob ${binary.length()}\u0000".toByteArray(Charsets.UTF_8))
