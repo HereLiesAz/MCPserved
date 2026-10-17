@@ -19,63 +19,41 @@ depend on Cloudflare at all.
 
 ## Quick Tunnel, for zero setup
 
-Tap **"Start tunnel and send to your AI assistant"** on the "This phone" tab.
-The app launches a bundled `cloudflared` binary in Cloudflare's anonymous
-["Quick Tunnels"](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/do-more-with-tunnels/trycloudflare/)
-mode — no Cloudflare account, no login, no API token — which hands back a
-random `https://….trycloudflare.com` address that Cloudflare proxies straight
-through to the phone for as long as the tunnel keeps running. The app then
-opens a share sheet with a ready-to-paste connect command already filled in;
-send it to yourself (Slack, notes, email — wherever you'll read it from the
-machine running your AI host) and run it there:
+Tap **Set up remote access** on the "This phone" tab. The app starts an
+anonymous Cloudflare Quick Tunnel that forwards HTTPS requests to the phone's
+bearer-authenticated `McpServer` on port 8791. The share sheet supplies the
+public `https://…trycloudflare.com/mcp` URL and its Authorization bearer
+header. Register **that HTTP MCP endpoint directly** with your host; it needs
+neither desktop `mcpserved` nor X25519 pairing.
+
+For Claude Code, use the command supplied by the app:
 
 ```bash
-MCPSERVED_MODE=tunnel MCPSERVED_HOST=https://random-words-here.trycloudflare.com \
-mcpserved install claude-code
+claude mcp add --transport http mcpserved https://YOUR-QUICK-TUNNEL.trycloudflare.com/mcp \
+  --header "Authorization: Bearer YOUR-DEVICE-TOKEN"
 ```
 
-That's genuinely the whole setup. (`MCPSERVED_MODE=tunnel` is implemented by the
-npm `mcpserved` server only; the Kotlin desktop app rejects it with an error
-rather than silently using adb.) `MCPSERVED_HOST` here is a full URL, not a
-bare address the way it is for the IPv6/UPnP paths below — `mcpserved` dials
-it directly over WebSocket (see `mcp/src/tunnel-link.ts`), since Quick
-Tunnels proxy HTTP/WebSocket traffic only, never a raw TCP socket the way
-`adb forward` or a direct IPv6/UPnP dial does. That's also why this is a
-*different* device-side server than the other four paths: `LocalWsServer`
-(port 8795, loopback-only, reached only through this tunnel) runs the exact
-same sealed-frame protocol as `LocalServer`, just wrapped in WebSocket frames
-instead of raw bytes.
+The old desktop `MCPSERVED_MODE=tunnel` expected a sealed-frame WebSocket.
+It is **not compatible** with the current HTTP tunnel and now fails explicitly
+instead of attempting the wrong protocol.
 
-**What the current app actually exposes.** The app now points the Quick Tunnel
-(and the stable-address *named* tunnel under "Remote access") at `McpServer`,
-the Streamable-HTTP MCP endpoint, so the public URL (`https://…/mcp`) is a
-bearer-token-authenticated remote MCP connector a cloud host can register
-directly. That is a different trust model from the sealed-frame paths:
-Cloudflare terminates TLS and can see the plaintext of every request and
-response (taps, typed text, screenshots, shell output), and the bearer token is
-the only boundary. Treat the URL and token like a password, rotate the token if
-either leaks, and prefer the sealed-frame paths if Cloudflare must not see the
-traffic. The WebSocket description above (`LocalWsServer`, `MCPSERVED_MODE=tunnel`
-via the npm server) is the older sealed-frame design and does not match what the
-app's tunnel button fronts today.
+**Security:** TLS terminates at Cloudflare; unlike the sealed-frame bridge
+and relay, this HTTP mode is *not* end-to-end encrypted from client to device.
+Cloudflare can inspect the HTTP requests and bearer credential. Anyone who
+possesses the bearer can request the same device actions the on-device MCP
+endpoint allows. Rotate the bearer in the app when access should end.
+The URL is ephemeral and disappears when you stop the tunnel or disarm the app.
 
-**The catch, and it's the only one:** the address is ephemeral. It stops
-answering the moment the tunnel is stopped, the app is killed, or the phone
-reboots — there's no "reconnect to the same URL later," a fresh tap gets a
-fresh address. If you want something that survives across sessions, that's
-what the four paths below are for — in particular, [deploying your own
-relay](#running-a-relay) gets you a stable address for the same one-tap
-convenience, at the cost of a one-time deploy step.
+### Named Cloudflare tunnel: stable public address
 
-**This is not the same thing as `MCPSERVED_MODE=relay`, below**, even though
-both eventually run through a Cloudflare-adjacent URL. A Quick Tunnel is a
-bare reverse proxy with nothing brokering a connection on the other end — the
-phone *is* the server, reached directly. `MCPSERVED_MODE=relay` instead dials
-a relay server that pairs two separate connections (the phone and your host)
-by a room token and forwards bytes between them. Pointing a `relay`-mode
-command at a Quick Tunnel's URL, or vice versa, will simply fail to connect;
-each mode's variables (`MCPSERVED_HOST` vs. `MCPSERVED_RELAY_URL` +
-`MCPSERVED_RELAY_ROOM`) are not interchangeable.
+The stable-address control provisions a tunnel and proxied DNS CNAME in a
+Cloudflare zone you own. It exposes the **same HTTP MCP server** and has the
+same bearer-token and Cloudflare TLS-termination considerations as a Quick
+Tunnel. It needs **Account → Cloudflare Tunnel:Edit, Zone → DNS:Edit, and
+Zone:Read** scoped to the correct account/zone. It refuses to overwrite
+unrelated DNS records or reuse a run token for a different hostname.
+The run token is a secret; to revoke it remotely, rotate or delete the tunnel
+in Cloudflare as well as clearing local credentials.
 
 ## Four more paths
 
@@ -85,10 +63,10 @@ me skip hosting anything and still be reachable" — turn out to be four more
 engineering problems, once you separate them by which of the phone's two
 servers they extend:
 
-- **`McpServer`** (the direct MCP-over-HTTP endpoint, port 8791) authenticates
-  with a bearer token over **plaintext** HTTP. Fine on loopback, where nothing
-  off-device can even reach the socket. Not fine handed to a third party, and
-  not fine exposed directly to the open internet either.
+- **`McpServer`** (MCP-over-HTTP, port 8791) authenticates with a bearer token.
+  Plain HTTP is safe only on loopback or inside a trusted encrypted tunnel/mesh;
+  Cloudflare Quick/Named Tunnels expose it over public HTTPS with TLS terminated
+  at Cloudflare, not end-to-end ciphertext.
 - **`LocalServer`** (the sealed-frame protocol the desktop bridge and the app
   backend speak, port 8790) is **already end-to-end encrypted** — X25519
   pairing, per-connection ChaCha20-Poly1305 frames — regardless of transport.
@@ -100,16 +78,12 @@ So:
 | **Wider bind** | `McpServer` | "Let me use Tailscale/WireGuard" |
 | **IPv6** | `LocalServer`'s sealed-frame protocol | "The phone should just host it" — no relay, no router cooperation, no third party of any kind: the phone's own global IPv6 address, direct. IPv6 has no NAT to traverse in the first place, so this is the only one of the four with a real (if not guaranteed) chance of working over cellular too |
 | **UPnP** | `LocalServer`'s sealed-frame protocol | "Let me skip hosting anything and just be reachable" — no relay, no third party, works only on a Wi-Fi network whose router supports it |
-| **Relay** | `LocalServer`'s sealed-frame protocol | "Let me run my own relay, for a stable address" — the same client/server code Quick Tunnel's `LocalWsServer` speaks, but reached through a room-pairing relay you deploy once rather than a fresh ephemeral tunnel every time; works from anywhere, including cellular. Deploying your own costs nothing and needs no server to maintain — see [Running a relay](#running-a-relay) below |
+| **Relay** | `LocalServer`'s sealed-frame protocol | Stable address through a room-pairing relay; encrypted end-to-end, unlike the Cloudflare HTTP tunnels above. See [Running a relay](#running-a-relay) below. |
 
-`McpServer` never gets an IPv6, UPnP, or relay path. (The Cloudflare tunnels
-described above are the exception: they do front it, and Cloudflare can read the
-traffic — see the note in the Quick Tunnel section.) Exposing its plaintext-
-behind-a-token protocol straight to the internet, by any of those three
-mechanisms, would hand whoever finds it your taps, typed text, and shell
-output in the clear — the opposite of what any of them should buy you. If you
-want to be reachable directly or via a relay, it carries the already-encrypted
-protocol; if you want a wider bind, pair it with a private mesh you trust.
+IPv6, UPnP, and the sealed-frame relay use `LocalServer`. Cloudflare Quick
+and Named Tunnels are separate paths to `McpServer` over public HTTPS. TLS
+ends at Cloudflare, which can see requests and the bearer token. Direct MCP
+wildcard binding is only appropriate behind a trusted private mesh.
 
 ## Path 1: wider bind, for a private mesh
 
@@ -247,15 +221,11 @@ room; the fix is rotating the room token) or watch ciphertext go by, but
 cannot decrypt it and cannot impersonate either end without the X25519 pairing
 secret, which never travels anywhere near the relay.
 
-## What none of the four paths change
+## Authorization
 
-All four are new *transports*. None is a new *authority* — every request that
-arrives over any of them still passes through the same `Enforcer.guard`
-bracketing, the same per-package grant table, and the same session gate as a
-request arriving over `adb forward`. See [security](security.md)'s "Trust
-boundaries" table: the relay is untrusted by construction, exactly like the
-desktop MCP server always was, because it sits downstream of a language
-model's output and carries frames without deciding anything. A live IPv6
-listener or UPnP mapping is untrusted the same way, just without an
-intermediary: either makes the already-authenticated port reachable by more
-people, not by anyone with more authority once they get there.
+The paired-app dispatcher still enforces session and package grants for both
+sealed-frame paths and the HTTP MCP endpoint. Raw `MCPSERVED_MODE=adb`
+is explicitly outside that grant model and holds device-wide shell authority.
+A public Cloudflare HTTP tunnel protects access with the bearer token, not
+X25519 sealed frames. Cloudflare is therefore a trusted intermediary for those
+HTTP paths, unlike the blind sealed-frame relay.

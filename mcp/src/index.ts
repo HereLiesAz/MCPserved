@@ -9,7 +9,6 @@ import { tryLoadConfig } from "./config.js";
 import { AppLink } from "./app-link.js";
 import { AdbLink } from "./adb-link.js";
 import { RelayLink } from "./relay-link.js";
-import { TunnelLink } from "./tunnel-link.js";
 import type { Link } from "./link.js";
 import { buildTools, type Capabilities, type ToolDef } from "./tools.js";
 import { pair } from "./pair.js";
@@ -27,15 +26,15 @@ import { install, connect } from "./install.js";
  * device straight over `adb`; when the on-device app is installed, paired, and
  * reachable, the server upgrades to it for the richer accessibility surface
  * (semantic tree, per-app grants, notification mirror). `MCPSERVED_MODE` pins the
- * choice to `adb` or `app`; the default, `auto`, prefers the app and falls back.
+ * choice to `adb` or `app`; the default, `auto`, uses adb only when no pairing exists; a paired app failure is fatal.
  * `MCPSERVED_HOST` makes app mode dial that address directly instead of
  * `adb forward`-ing a loopback port — for an IPv6, UPnP-mapped, or LAN address
  * the device advertised opt-in (see remote-access.md), where there is no adb
  * path to fall back to in the first place. Two more explicit modes reach the
- * device with no local network path at all: `MCPSERVED_MODE=tunnel` (paired
- * with `MCPSERVED_HOST=<the app's Quick Tunnel URL>`) needs nothing deployed
- * or configured beyond the app's one-tap button; `MCPSERVED_MODE=relay`
- * (paired with `MCPSERVED_RELAY_URL` + `MCPSERVED_RELAY_ROOM`) is for a relay
+ * device with no local network path at all: a bearer-authenticated Quick
+ * Tunnel HTTP endpoint, connected directly by the MCP host (not this bridge),
+ * or `MCPSERVED_MODE=relay` (with `MCPSERVED_RELAY_URL` and
+ * `MCPSERVED_RELAY_ROOM`) for a self-deployed encrypted-frame relay.
  * the operator has deployed themselves, for a persistent address instead of
  * a one-tap ephemeral one.
  *
@@ -51,8 +50,8 @@ import { install, connect } from "./install.js";
  *
  * In `auto` (or `app`) mode with a pairing on file, it probes the on-device app
  * once. If the app answers, that link — already connected — is used. Otherwise
- * `auto` falls back to adb and `app` fails loudly, since a pinned choice that
- * silently did something else would be worse than an error.
+ * both `auto` and `app` fail closed. Only an unpaired `auto` session uses adb;
+ * explicitly requesting `adb` always selects device-wide shell authority.
  */
 async function chooseLink(): Promise<Link> {
   const mode = (process.env.MCPSERVED_MODE ?? "auto").toLowerCase();
@@ -84,36 +83,16 @@ async function chooseLink(): Promise<Link> {
     return relay;
   }
 
-  // Tunnel is relay's zero-setup sibling: the app's one-tap Quick Tunnel
-  // needs no Cloudflare account, no API token, and no relay to deploy — the
-  // https:// URL it shows *is* the address, dialed directly over WebSocket
-  // (see tunnel-link.ts for why this isn't just RelayLink with a different
-  // URL). MCPSERVED_HOST carries the tunnel URL here, same variable the
-  // IPv6/UPnP paths use for a direct address — this mode just interprets it
-  // as a URL to dial over WebSocket instead of a bare host to dial over TCP.
+  // Quick Tunnels now expose McpServer's bearer-authenticated HTTP /mcp.
+  // The older TunnelLink assumed the sealed-frame WebSocket endpoint, so
+  // attempting that handshake against HTTP never worked. Hosts must register
+  // the device endpoint directly with its bearer token instead.
   if (mode === "tunnel") {
-    const config = tryLoadConfig();
-    if (!config) {
-      throw new Error("MCPSERVED_MODE=tunnel, but no pairing was found. Run `npx mcpserved pair` first.");
-    }
-    const tunnelUrl = process.env.MCPSERVED_HOST;
-    if (!tunnelUrl) {
-      throw new Error(
-        "MCPSERVED_MODE=tunnel requires MCPSERVED_HOST (the https:// URL the app's " +
-          "\"Start tunnel\" button showed).",
-      );
-    }
-    const tunnel = new TunnelLink(config, tunnelUrl);
-    const caps = await tunnel.send({ op: "capabilities" }, 15_000);
-    if (!caps || !caps.ok) {
-      tunnel.close();
-      throw new Error(
-        `MCPSERVED_MODE=tunnel, but the device did not answer over ${tunnelUrl}. Check that the ` +
-          "tunnel is still running (it stops if the app is killed or the session ends) and the " +
-          "device is armed.",
-      );
-    }
-    return tunnel;
+    throw new Error(
+      "MCPSERVED_MODE=tunnel is incompatible with the HTTP Quick Tunnel. " +
+        "Register MCPSERVED_HOST/mcp directly as a remote MCP URL with the " +
+        "Authorization: Bearer header shown by the app's Share action.",
+    );
   }
 
   const config = mode === "adb" ? null : tryLoadConfig();
@@ -142,22 +121,21 @@ async function chooseLink(): Promise<Link> {
       const caps = await app.send({ op: "capabilities" }, 5_000);
       if (caps && caps.ok) return app;
     } catch {
-      // Unreachable app: fall through to the fallback below, unless an
-      // explicit host was given — see above.
+      // Unreachable paired app: fail closed instead of broadening authority.
     }
     app.close();
-    if (mode === "app" || explicitHost) {
-      throw new Error(
+    throw new Error(
         explicitHost
           ? `MCPSERVED_HOST=${explicitHost} did not answer. Check that the device is ` +
               "armed, remote access is enabled for that path, and the address/port are current."
-          : "MCPSERVED_MODE=app, but the on-device app did not answer over adb-forward. " +
+          : "Paired on-device app did not answer over adb-forward. " +
               "Check that it is installed, paired, and armed, and that the device is " +
-              "reachable (`adb devices`, or `adb connect <ip>:5555` for Wi-Fi).",
-      );
-    }
+              "reachable (`adb devices`, or `adb connect <ip>:5555` for Wi-Fi). " +
+              "No adb fallback is permitted for a paired device; explicitly set MCPSERVED_MODE=adb to use unrestricted adb.",
+    );
   }
 
+  // An unpaired auto session is the advertised app-free quick-connect path.
   return new AdbLink();
 }
 

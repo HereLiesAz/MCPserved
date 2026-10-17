@@ -49,21 +49,15 @@ class CloudflareApiToken(ctx: Context) {
         get() = prefs.getString(KEY_HOSTNAME, "") ?: ""
         set(value) = prefs.edit().putString(KEY_HOSTNAME, value.trim()).apply()
 
-    /**
-     * The hostname [namedTunnelRunToken] was actually provisioned for. Kept apart
-     * from [namedTunnelHostname] (which tracks whatever is typed in the field) so a
-     * run token is only reused for the hostname it was created for.
-     */
-    var namedTunnelProvisionedHostname: String
+    /** Forget both credentials and their hostname association. Cloudflare revocation is separate. */
+    fun clear() = prefs.edit()
+        .remove(KEY_TOKEN).remove(KEY_RUN_TOKEN).remove(KEY_HOSTNAME)
+        .remove(KEY_PROVISIONED_HOSTNAME).apply()
+
+    /** Hostname the stored run token was actually issued for, never the editable field. */
+    var provisionedHostname: String
         get() = prefs.getString(KEY_PROVISIONED_HOSTNAME, "") ?: ""
         set(value) = prefs.edit().putString(KEY_PROVISIONED_HOSTNAME, value.trim()).apply()
-
-    /** Forgets the API token and any provisioned tunnel's run token. */
-    fun clear() = prefs.edit()
-        .remove(KEY_TOKEN)
-        .remove(KEY_RUN_TOKEN)
-        .remove(KEY_PROVISIONED_HOSTNAME)
-        .apply()
 
     private companion object {
         const val KEY_TOKEN = "api_token"

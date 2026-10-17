@@ -98,7 +98,7 @@ class ControlService : Service() {
 
         /**
          * State of the operator-started Cloudflare Quick Tunnel exposing
-         * [LocalWsServer], if any — class-level for the same reason
+         * [McpServer], if any — class-level for the same reason
          * [upnpMapping] is: the UI observes it across service restarts.
          * Unlike the persistent remote-access paths above, this is never
          * auto-started from a stored setting — it exists only while the
@@ -266,12 +266,11 @@ class ControlService : Service() {
             // desktop bridge is unaffected, so the service stays useful.
             Log.w(TAG, "on-device MCP endpoint failed to bind; the desktop bridge still works")
         }
-        // Loopback-only and reachable only through a tunnel the operator
-        // explicitly starts (CloudflareTunnel) — always on, same as the two
-        // servers above, since nothing off-device can reach it unless
-        // something else already chose to expose it.
+        // Legacy sealed-frame WebSocket endpoint, loopback-only. Quick and
+        // Named Cloudflare tunnels now forward the bearer-authenticated HTTP
+        // McpServer; this endpoint remains local, not publicly tunneled.
         if (!localWsServer.startServer()) {
-            Log.w(TAG, "local WebSocket endpoint failed to bind; tunnel-based reachability is unavailable this run")
+            Log.w(TAG, "local sealed-frame WebSocket endpoint failed to bind")
         }
 
         // Relay dial-out is opt-in and off by default. Unlike the wildcard MCP
@@ -351,14 +350,17 @@ class ControlService : Service() {
         if (::localWsServer.isInitialized) localWsServer.stopServer()
         relayClient?.stop()
         upnpJob?.cancel()
-        upnpMapper?.let { mapper -> scope.launch { mapper.unmapPort() } }
+        // Teardown must not use the soon-to-be-cancelled service scope.
+        // Router unmapping is network I/O, so perform it off the main thread.
+        upnpMapper?.let { mapper ->
+            val cleanupScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+            cleanupScope.launch {
+                try { mapper.unmapPort() } finally { cleanupScope.cancel() }
+            }
+        }
         _upnpMapping.value = null
-        cloudflareTunnel?.stop()
-        // The named tunnel is a separate cloudflared process; without this it
-        // outlives the service while the UI still reports it as Running.
-        namedTunnel?.stop()
-        namedTunnel = null
-        _namedTunnelState.value = TunnelState.Idle
+        stopTunnel()
+        stopNamedTunnel()
         if (::mediaProjectionBackend.isInitialized) mediaProjectionBackend.revoke()
         if (::server.isInitialized) scope.launch { server.stop() }
         scope.cancel()
@@ -400,9 +402,12 @@ class ControlService : Service() {
             // desktop, no `mcpserved` client, no pairing. The bearer is the
             // boundary (see McpServer); the WS/sealed-frame transports stay for
             // the relay and mesh paths.
-            _tunnelState.value = when (val result = tunnel.start(McpServer.DEFAULT_HTTP_PORT)) {
-                is CloudflareTunnel.Result.Success -> TunnelState.Running(result.url)
-                is CloudflareTunnel.Result.Failure -> TunnelState.Error(result.message)
+            val result = tunnel.start(McpServer.DEFAULT_HTTP_PORT)
+            if (cloudflareTunnel === tunnel) {
+                _tunnelState.value = when (result) {
+                    is CloudflareTunnel.Result.Success -> TunnelState.Running(result.url)
+                    is CloudflareTunnel.Result.Failure -> TunnelState.Error(result.message)
+                }
             }
         }
     }
@@ -424,9 +429,12 @@ class ControlService : Service() {
         _namedTunnelState.value = TunnelState.Starting
         val tunnel = CloudflareTunnel(applicationContext).also { namedTunnel = it }
         scope.launch {
-            _namedTunnelState.value = when (val result = tunnel.startNamed(runToken, hostname)) {
-                is CloudflareTunnel.Result.Success -> TunnelState.Running(result.url)
-                is CloudflareTunnel.Result.Failure -> TunnelState.Error(result.message)
+            val result = tunnel.startNamed(runToken, hostname)
+            if (namedTunnel === tunnel) {
+                _namedTunnelState.value = when (result) {
+                    is CloudflareTunnel.Result.Success -> TunnelState.Running(result.url)
+                    is CloudflareTunnel.Result.Failure -> TunnelState.Error(result.message)
+                }
             }
         }
     }

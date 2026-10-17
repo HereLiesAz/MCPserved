@@ -111,20 +111,20 @@ if mode == "app" and no config:      error "run `npx mcpserved pair` first"
 if config exists:
     probe the app (capabilities, 5s timeout)
     if it answers ok:                use AppLink (already connected)
-    else if mode == "app":           error "app did not answer over adb-forward"
-    else (auto):                     fall through
-use AdbLink
+    else:                            error (never expand to adb)
+else if mode == "auto" or "adb":      use AdbLink
 ```
 
 | `MCPSERVED_MODE` | No pairing | Pairing, app answers | Pairing, app silent |
 | --- | --- | --- | --- |
-| `auto` (default) | adb | app | adb |
+| `auto` (default) | adb | app | **error** |
 | `adb` | adb | adb | adb |
 | `app` | **error** | app | **error** |
 
-A pinned `app` mode never silently becomes adb: adb is device-wide shell
-authority, and falling back to it would quietly widen what the operator asked to
-restrict. See [security](security.md).
+Once a pairing exists, `auto` never silently becomes adb: adb has device-wide
+shell authority and would bypass the app's grants, audit log, and disarm switch.
+Unrestricted control requires an explicit `MCPSERVED_MODE=adb`.
+See [security](security.md).
 
 ## Pairing flow
 

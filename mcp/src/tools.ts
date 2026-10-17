@@ -19,6 +19,8 @@ export interface Capabilities {
   root: boolean;
   shizuku: boolean;
   a11y: boolean;
+  /** True only for the unrestricted direct ADB backend. */
+  adb?: boolean;
 }
 
 export interface ToolDef {
@@ -422,5 +424,38 @@ const PRIVILEGED: ToolDef[] = [
 /** Builds the tool list appropriate to a device's reported capabilities. */
 export function buildTools(caps: Capabilities): ToolDef[] {
   const privileged = caps.root || caps.shizuku;
-  return privileged ? [...ALWAYS, ...PRIVILEGED] : ALWAYS;
+  const tools = privileged ? [...ALWAYS, ...PRIVILEGED] : [...ALWAYS];
+  if (!caps.adb) return tools;
+
+  // Direct ADB has device-wide shell authority. Do not label its observations
+  // as filtered or its actions as grant-checked: that is only true in app mode.
+  return tools.map((tool) => {
+    switch (tool.name) {
+      case "session_begin":
+        return { ...tool, description:
+          "ADB mode does not enforce sessions or per-app grants. Best-effort wake; no security boundary." };
+      case "grants_list":
+        return { ...tool, description:
+          "ADB mode has no per-app grants. Returns an empty list, NOT a denial of device access." };
+      case "apps_list":
+        return { ...tool, description:
+          "ADB lists any installed application (default: third-party packages); there is no grant filter." };
+      case "notifications":
+        return { ...tool,
+          description: "Read notifications from ALL packages; ADB cannot filter by app grants.",
+          handler: async (_args: any, link: Link) => {
+            const r = await link.send({ op: "notifications" });
+            if (!r.ok) return `error: ${r.error}`;
+            if (r.items.length === 0) return "no notifications";
+            return r.items.map((n: any) =>
+              `${n.pkg}: ${n.title ?? ""} — ${n.text ?? ""}`).join("\n");
+          },
+        };
+      case "shell":
+        return { ...tool, description:
+          "Run an unrestricted ADB shell command. No per-app SHELL grant or app-side audit." };
+      default:
+        return tool;
+    }
+  });
 }
