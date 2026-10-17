@@ -41,6 +41,7 @@ jobs:
     outputs:
       available_labels: '${{ steps.get_labels.outputs.available_labels }}'
       triaged_issues: '${{ env.TRIAGED_ISSUES }}'
+      candidate_issues: '${{ steps.find_issues.outputs.issues_to_triage }}'
     steps:
       - name: 'Get repository labels'
         id: 'get_labels'
@@ -75,13 +76,22 @@ jobs:
           GH_TOKEN: '${{ secrets.GH_TOKEN || github.token }}'
         run: |-
           echo '🔍 Finding unlabeled issues and issues marked for triage...'
-          ISSUES="$(gh issue list \
+          UNLABELED="$(gh issue list \
             --state 'open' \
-            --search 'no:label label:"status/needs-triage"' \
+            --search 'no:label' \
             --json number,title,body \
             --limit '100' \
             --repo "${GITHUB_REPOSITORY}"
           )"
+          NEEDS_TRIAGE="$(gh issue list \
+            --state 'open' \
+            --search 'label:"status/needs-triage"' \
+            --json number,title,body \
+            --limit '100' \
+            --repo "${GITHUB_REPOSITORY}"
+          )"
+          ISSUES="$(jq -cn --argjson unlabeled "$UNLABELED" --argjson marked "$NEEDS_TRIAGE" \
+            '$unlabeled + $marked | unique_by(.number)')"
 
           echo '📝 Setting output for GitHub Actions...'
           echo "issues_to_triage=${ISSUES}" >> "${GITHUB_OUTPUT}"
@@ -93,7 +103,7 @@ jobs:
         id: 'gemini_issue_analysis'
         if: |-
           ${{ steps.find_issues.outputs.issues_to_triage != '[]' }}
-        uses: 'google-github-actions/run-gemini-cli@v0' # ratchet:exclude
+        uses: 'google-github-actions/run-gemini-cli@f77273f4c914e4bf38440cf36a0369cb64a37489' # pinned: v0.1.22
         env:
           # Trust the CI checkout so the headless CLI doesn't refuse to run with
           # "not running in a trusted directory" (it can't prompt in automation).
@@ -165,6 +175,7 @@ jobs:
         env:
           AVAILABLE_LABELS: '${{ needs.triage.outputs.available_labels }}'
           TRIAGED_ISSUES: '${{ needs.triage.outputs.triaged_issues }}'
+          CANDIDATE_ISSUES: '${{ needs.triage.outputs.candidate_issues }}'
         uses: 'actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3' # ratchet:actions/github-script@v9.0.0
         with:
           # Use the provided token so that the "gemini-cli" is the actor in the
@@ -177,8 +188,11 @@ jobs:
               .sort()
 
             // Parse out the triaged issues
-            const triagedIssues = (JSON.parse(process.env.TRIAGED_ISSUES || '{}'))
-              .sort((a, b) => a.issue_number - b.issue_number)
+            const candidates = JSON.parse(process.env.CANDIDATE_ISSUES || '[]');
+            const allowedIssueNumbers = new Set(candidates.map((candidate) => candidate.number));
+            const triagedIssues = JSON.parse(process.env.TRIAGED_ISSUES || '[]');
+            if (!Array.isArray(triagedIssues)) throw new Error('Invalid Gemini issue list');
+            triagedIssues.sort((a, b) => a.issue_number - b.issue_number)
 
             core.debug(`Triaged issues: ${JSON.stringify(triagedIssues)}`);
 
@@ -190,8 +204,18 @@ jobs:
               }
 
               const issueNumber = issue.issue_number;
-              if (!issueNumber) {
-                core.debug(`Skipping issue with no data: ${JSON.stringify(issue)}`);
+              if (!Number.isSafeInteger(issueNumber) || issueNumber < 1 ||
+                  !allowedIssueNumbers.has(issueNumber)) {
+                core.warning(`Rejecting out-of-scope Gemini issue number: ${JSON.stringify(issueNumber)}`);
+                continue;
+              }
+              const { data: current } = await github.rest.issues.get({
+                owner: context.repo.owner, repo: context.repo.repo, issue_number: issueNumber
+              });
+              if (current.state !== 'open' || current.pull_request ||
+                  (current.labels.length > 0 &&
+                    !current.labels.some((label) => label.name === 'status/needs-triage'))) {
+                core.info(`Skipping issue #${issueNumber}: no longer eligible for triage`);
                 continue;
               }
 
@@ -211,10 +235,18 @@ jobs:
 
               core.debug(`Setting labels on issue #${issueNumber} to ${labelsToSet.join(', ')} (${issue.explanation || 'no explanation'})`)
 
-              await github.rest.issues.setLabels({
+              await github.rest.issues.addLabels({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: issueNumber,
                 labels: labelsToSet,
               });
+              if (current.labels.some((label) => label.name === 'status/needs-triage')) {
+                await github.rest.issues.removeLabel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: issueNumber,
+                  name: 'status/needs-triage',
+                });
+              }
             }

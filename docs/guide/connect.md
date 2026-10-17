@@ -155,9 +155,11 @@ opt-in: set `MCPSERVED_MODE=relay` with `MCPSERVED_RELAY_URL` and
 and the desktop bridge reaches the device over a relay instead of `adb
 forward`/LAN. See [remote-access](remote-access.md) and `relay/README.md`.
 
-This does **not** turn MCPserved into a public HTTP connector, and the device's
-direct MCP-over-HTTP endpoint (`McpServer`, the bearer-token one) never gets a
-relay path — only the already end-to-end-encrypted app-backend protocol does,
+The sealed-frame relay is not a public MCP HTTP connector: it carries only
+the paired-app protocol. Separately, the app's opt-in Cloudflare Quick and
+Named Tunnels expose `McpServer` over public HTTPS as bearer-authenticated
+HTTP MCP endpoints. Cloudflare terminates TLS and can inspect their traffic.
+The relay carries already end-to-end-encrypted app-backend frames,
 for the security reasons covered in [security](security.md). A cloud-hosted
 `mcpserved` process could use relay mode to reach a phone on someone's home
 network; a **fully remote, public HTTP connector** (the ChatGPT web/desktop

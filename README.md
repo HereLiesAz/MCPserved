@@ -38,15 +38,15 @@ Two backends behind one interface. The default drives the device straight over
 enabled — no app to install. When the on-device app is installed, paired, and
 reachable, the server upgrades to it for the semantic accessibility tree,
 per-package grants, and the notification mirror. `MCPSERVED_MODE` pins the choice
-to `adb` or `app`; the default, `auto`, prefers the app and falls back.
+to `adb` or `app`; `auto` uses adb only before pairing and fails closed when a paired app is unavailable.
 
-The app never connects out. It binds a control server on the phone; `adb forward`
+By default the app does not connect out; opt-in relays and Cloudflare tunnels do. It binds a control server on the phone; `adb forward`
 bridges a desktop port onto its loopback, and — once armed — it also advertises
 itself on the LAN over mDNS (`_mcpserved._tcp`) so the desktop can find it and
 dial it directly, no cable and no manual `ip:port`. Either way the sealed-frame
 pairing key is the boundary: discovery only reveals an address, and an address is
 useless to anything that does not hold the paired secret. `auto` mode prefers a
-discovered LAN device, then an `adb forward` tunnel, then falls back to raw adb.
+discovered LAN device, then an `adb forward` tunnel; with an existing pairing it never silently falls back to raw adb.
 
 ## Finding each other
 
@@ -170,7 +170,7 @@ itself, whichever answers first.
 
 The headless server is the same binary: `mcpserved stdio` is what an AI host
 spawns. `MCPSERVED_MODE` pins the backend to `adb` or `app`; the default `auto`
-prefers the app and falls back.
+uses adb only before pairing and fails closed if a paired app is unreachable.
 
 ## Known constraints
 

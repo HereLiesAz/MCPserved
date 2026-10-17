@@ -11,7 +11,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 /**
  * Runs Cloudflare's `cloudflared` as a subprocess in "Quick Tunnel" mode
  * (`cloudflared tunnel --url http://127.0.0.1:<port>`), exposing
- * [LocalWsServer] at a random public `https://…trycloudflare.com` address —
+ * [McpServer] at a random public `https://…trycloudflare.com` address —
  * anonymous, no Cloudflare account, no login, alive only as long as this
  * process runs. This is what makes a relay possible with nothing pre-
  * deployed: the phone creates the tunnel itself, hands the resulting address
@@ -139,9 +139,12 @@ class CloudflareTunnel(private val appContext: Context) {
             )
         }
         runCatching {
-            val proc = ProcessBuilder(binary.absolutePath, "tunnel", "run", "--token", token)
+            // Cloudflare supports TUNNEL_TOKEN. Keep the credential out of
+            // argv / ps output (the process environment is still sensitive).
+            val builder = ProcessBuilder(binary.absolutePath, "tunnel", "run")
                 .redirectErrorStream(true)
-                .start()
+            builder.environment()["TUNNEL_TOKEN"] = token
+            val proc = builder.start()
             process = proc
             awaitOutcome(proc, "didn't register a tunnel connection") { line ->
                 if (REGISTERED_PATTERN.containsMatchIn(line)) "https://$hostname" else null
@@ -157,19 +160,19 @@ class CloudflareTunnel(private val appContext: Context) {
         when (val outcome = awaitUrl(proc, extract)) {
             is AwaitOutcome.Found -> Result.Success(outcome.url)
             is AwaitOutcome.TimedOut -> {
-                proc.destroy()
-                process = null
+                proc.destroyForcibly()
+                if (process === proc) process = null
                 Result.Failure("cloudflared $missedWhat within ${TIMEOUT_MS / 1000}s." + outcome.lastLines.asDiagnostic())
             }
             is AwaitOutcome.ProcessExited -> {
-                process = null
+                if (process === proc) process = null
                 Result.Failure("cloudflared exited before it $missedWhat." + outcome.lastLines.asDiagnostic())
             }
         }
 
     /** Kills the tunnel process, if one is running. The public URL stops working immediately. */
     fun stop() {
-        process?.destroy()
+        process?.destroyForcibly()
         process = null
     }
 

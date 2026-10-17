@@ -51,6 +51,19 @@ jobs:
           cache-read-only: false
           dependency-graph: generate-submit-and-upload
 
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: mcp/package-lock.json
+
+      - name: Test desktop MCP bridge
+        run: |
+          cd mcp
+          npm ci
+          npm test
+
       - name: Run unit tests
         run: |
           chmod +x gradlew
