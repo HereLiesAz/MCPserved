@@ -33,7 +33,7 @@ claude mcp add --transport http mcpserved https://YOUR-QUICK-TUNNEL.trycloudflar
   --header "Authorization: Bearer YOUR-DEVICE-TOKEN"
 ```
 
-The old desktop `MCPSERVED_MODE=tunnel` expected a sealed-frame WebSocket.
+The old `MCPSERVED_MODE=tunnel` (desktop app and npm server) expected a sealed-frame WebSocket.
 It is **not compatible** with the current HTTP tunnel and now fails explicitly
 instead of attempting the wrong protocol.
 

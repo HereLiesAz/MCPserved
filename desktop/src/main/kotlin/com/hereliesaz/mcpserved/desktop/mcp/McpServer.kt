@@ -64,13 +64,19 @@ object McpServer {
 
         // An unrecognised mode must not quietly behave like `auto`: `auto` can
         // end at AdbLink (device-wide shell, no grants), which is the opposite of
-        // what someone who asked for `tunnel` expects. The tunnel mode exists only
-        // in the TypeScript server (mcp/src/tunnel-link.ts).
+        // what someone who asked for `tunnel` expects. Quick Tunnels expose the
+        // bearer-authenticated HTTP /mcp endpoint, which hosts connect to directly.
         if (mode !in SUPPORTED_MODES) {
             error(
                 "MCPSERVED_MODE=$mode is not supported by the desktop app " +
                     "(supported: ${SUPPORTED_MODES.joinToString(", ")}). " +
-                    if (mode == "tunnel") "Quick Tunnel mode is only available in the npm `mcpserved` server." else "",
+                    if (mode == "tunnel") {
+                        "MCPSERVED_MODE=tunnel is incompatible with the HTTP Quick Tunnel. " +
+                            "Register MCPSERVED_HOST/mcp directly as a remote MCP URL with the " +
+                            "Authorization: Bearer header shown by the app's Share action."
+                    } else {
+                        ""
+                    },
             )
         }
 

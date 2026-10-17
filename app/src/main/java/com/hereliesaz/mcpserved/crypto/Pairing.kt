@@ -32,6 +32,9 @@ interface KeyPairing {
      * accepts everything; [FrameSession] additionally keeps its own in-memory set.
      */
     fun claimSalt(salt: ByteArray): Boolean = true
+
+    /** Non-consuming check: true if [salt] was already claimed. */
+    fun isSaltUsed(salt: ByteArray): Boolean = false
 }
 
 /**
@@ -245,11 +248,17 @@ class Pairing(ctx: Context) : KeyPairing {
      * recent [MAX_SALTS] salts across process restarts and rejects a repeat.
      */
     @Synchronized
+    override fun isSaltUsed(salt: ByteArray): Boolean =
+        saltDigest(salt) in prefs.getString(KEY_SALTS, "").orEmpty().split(',')
+
+    private fun saltDigest(salt: ByteArray): String = Base64.encodeToString(
+        java.security.MessageDigest.getInstance("SHA-256").digest(salt).copyOf(12),
+        Base64.NO_WRAP or Base64.URL_SAFE,
+    )
+
+    @Synchronized
     override fun claimSalt(salt: ByteArray): Boolean {
-        val digest = Base64.encodeToString(
-            java.security.MessageDigest.getInstance("SHA-256").digest(salt).copyOf(12),
-            Base64.NO_WRAP or Base64.URL_SAFE,
-        )
+        val digest = saltDigest(salt)
         val seen = prefs.getString(KEY_SALTS, "").orEmpty().split(',').filter { it.isNotEmpty() }
         if (digest in seen) return false
         prefs.edit().putString(KEY_SALTS, (seen + digest).takeLast(MAX_SALTS).joinToString(",")).apply()

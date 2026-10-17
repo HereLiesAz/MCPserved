@@ -70,23 +70,28 @@ class PairingResponder {
                         return@execute
                     }
                     socket.soTimeout = remaining
+                    val client = try {
+                        socket.accept()
+                    } catch (_: SocketTimeoutException) {
+                        // The accept window ended; the loop re-checks the deadline.
+                        continue
+                    } catch (e: java.net.SocketException) {
+                        // Only accept() failing means the listening socket was closed by stop().
+                        onResult(Result.failure(e))
+                        return@execute
+                    }
+                    // Accepted-client I/O: a stall, reset or junk submission drops just this
+                    // client and keeps listening while time remains.
                     try {
-                        socket.accept().use { client ->
-                            client.soTimeout = READ_TIMEOUT_MS
-                            val line = BufferedReader(InputStreamReader(client.getInputStream())).readLine()
+                        client.use {
+                            it.soTimeout = READ_TIMEOUT_MS
+                            val line = BufferedReader(InputStreamReader(it.getInputStream())).readLine()
                                 ?: throw IllegalStateException("connection closed with no data")
                             onResult(Result.success(parse(line, token)))
                         }
                         return@execute
-                    } catch (_: SocketTimeoutException) {
-                        // Either the accept window ended or this client stalled; the loop
-                        // re-checks the deadline and keeps listening if time remains.
-                    } catch (e: java.net.SocketException) {
-                        // The listening socket was closed by stop().
-                        onResult(Result.failure(e))
-                        return@execute
                     } catch (e: Exception) {
-                        lastError = e
+                        if (e !is SocketTimeoutException) lastError = e
                     }
                 }
             } finally {
