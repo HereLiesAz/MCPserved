@@ -305,7 +305,6 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     cloudflareToken.namedTunnelRunToken = r.runToken
                     cloudflareToken.provisionedHostname = r.hostname
                     cloudflareToken.namedTunnelHostname = r.hostname
-                    cloudflareToken.namedTunnelProvisionedHostname = r.hostname
                     val note = buildString { r.notes.forEach { if (isNotEmpty()) append(' '); append(it).append('.') } }
                         .trim().ifBlank { null }
                     _stableAddressState.value = DeployState.Done("https://${r.hostname}", note)

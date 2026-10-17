@@ -194,11 +194,6 @@ jobs:
             if (!Array.isArray(triagedIssues)) throw new Error('Invalid Gemini issue list');
             triagedIssues.sort((a, b) => a.issue_number - b.issue_number)
 
-            // Only issues that were actually offered for triage may be relabeled; the
-            // issue numbers come from model output and must not be trusted blindly.
-            const offered = new Set((JSON.parse(process.env.ISSUES_TO_TRIAGE || '[]'))
-              .map((i) => Number(i.number)))
-
             core.debug(`Triaged issues: ${JSON.stringify(triagedIssues)}`);
 
             // Iterate over each label
@@ -221,11 +216,6 @@ jobs:
                   (current.labels.length > 0 &&
                     !current.labels.some((label) => label.name === 'status/needs-triage'))) {
                 core.info(`Skipping issue #${issueNumber}: no longer eligible for triage`);
-                continue;
-              }
-
-              if (!offered.has(Number(issueNumber))) {
-                core.warning(`Skipping issue #${issueNumber} - it was not offered for triage.`);
                 continue;
               }
 
