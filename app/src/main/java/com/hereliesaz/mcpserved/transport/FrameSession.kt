@@ -5,10 +5,12 @@ import com.hereliesaz.mcpserved.crypto.FrameCodec
 import com.hereliesaz.mcpserved.crypto.KeyPairing
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.net.Socket
+import java.net.SocketTimeoutException
 
 /**
  * A duplex, line-delimited byte stream [FrameSession] can run the sealed-frame
@@ -27,16 +29,35 @@ interface FrameStream {
     /** Writes one line and flushes it. */
     suspend fun writeLine(line: String)
 
+    /**
+     * Bounds each subsequent [readLine] to [millis] (0 = unbounded). A bounded read
+     * that times out returns null. Streams whose reads are already cancellable
+     * (channels) keep this default no-op; a blocking socket must enforce it itself,
+     * because coroutine cancellation cannot interrupt a blocking read.
+     */
+    fun setReadTimeout(millis: Int) {}
+
     fun close()
 }
 
 /** [FrameStream] over a plain [Socket]'s streams — used by [LocalServer]'s accept loop. */
 class SocketFrameStream(socket: Socket) : FrameStream {
+    private val socket = socket
     private val reader = socket.getInputStream().bufferedReader()
     private val writer = socket.getOutputStream().bufferedWriter()
 
     override suspend fun readLine(): String? =
-        withContext(Dispatchers.IO) { reader.readLine() }
+        withContext(Dispatchers.IO) {
+            try {
+                reader.readLine()
+            } catch (_: SocketTimeoutException) {
+                null
+            }
+        }
+
+    override fun setReadTimeout(millis: Int) {
+        runCatching { socket.soTimeout = millis }
+    }
 
     override suspend fun writeLine(line: String) = withContext(Dispatchers.IO) {
         writer.write(line)
@@ -70,6 +91,20 @@ class FrameSession(
 ) {
     enum class EndReason { STREAM_CLOSED, UNPAIRED, STOPPED }
 
+    /**
+     * Salts already consumed by a handshake, newest last.
+     *
+     * The device contributes no entropy to the key derivation: the keys are a
+     * function of the static X25519 secret and the peer-chosen salt alone. A
+     * recorded session could therefore be replayed verbatim on a new connection
+     * (same salt -> same keys -> the frame counter restarts at zero and the old
+     * frames open again, and the device would seal fresh replies under the old
+     * key+nonce pairs). Refusing a salt that was already used closes that without
+     * changing the wire format; an honest peer picks a fresh random salt per
+     * connection, so it never collides.
+     */
+    private val usedSalts = LinkedHashSet<String>()
+
     private val json = Json {
         ignoreUnknownKeys = true
         encodeDefaults = true
@@ -92,7 +127,16 @@ class FrameSession(
         isActive: () -> Boolean = { true },
         onConnected: () -> Unit = {},
     ): EndReason {
-        val helloLine = stream.readLine() ?: return EndReason.STREAM_CLOSED
+        // Bound the wait for the opening Hello. Without it a peer that connects
+        // and says nothing pins this session (and, for [LocalServer], the single
+        // serving slot) forever. Returning closes the stream via the caller. The
+        // socket deadline is enforced on the socket itself: withTimeoutOrNull alone
+        // cannot interrupt a blocking read. It stays in force until a frame
+        // authenticates, so a Hello-then-silence peer is bounded too.
+        stream.setReadTimeout(HELLO_TIMEOUT_MS.toInt())
+        val deadline = System.nanoTime() + HELLO_TIMEOUT_MS * 1_000_000L
+        val helloLine = withTimeoutOrNull(HELLO_TIMEOUT_MS) { stream.readLine() }
+            ?: return EndReason.STREAM_CLOSED
         val hello = runCatching { json.decodeFromString<Hello>(helloLine) }.getOrNull()
             ?: return EndReason.STREAM_CLOSED
         if (hello.v != PROTO_VERSION) return EndReason.STREAM_CLOSED
@@ -100,19 +144,41 @@ class FrameSession(
             Base64.decode(hello.salt, Base64.NO_WRAP or Base64.URL_SAFE)
         }.getOrNull() ?: return EndReason.STREAM_CLOSED
 
+        // Non-consuming: reject a replay now, but only record the salt once a frame
+        // authenticates (below) so unauthenticated Hellos cannot evict recorded salts.
+        if (isSaltUsed(salt) || pairing.isSaltUsed(salt)) return EndReason.STREAM_CLOSED
+
         val keys = pairing.deriveKeys(salt) ?: return EndReason.UNPAIRED
         val codec = FrameCodec(sealKey = keys.deviceToServer, openKey = keys.serverToDevice)
         val aad = pairing.deviceId.toByteArray()
         onConnected()
 
+        var authenticated = false
         while (isActive()) {
-            val line = stream.readLine() ?: return EndReason.STREAM_CLOSED
+            // Until a frame authenticates, every read is bounded by the REMAINING
+            // pre-auth time, so the deadline holds on channel-backed streams too.
+            val line = if (authenticated) {
+                stream.readLine()
+            } else {
+                val remainingMs = (deadline - System.nanoTime()) / 1_000_000L
+                if (remainingMs <= 0) return EndReason.STREAM_CLOSED
+                withTimeoutOrNull(remainingMs) { stream.readLine() }
+            } ?: return EndReason.STREAM_CLOSED
 
             val env = runCatching { json.decodeFromString<Envelope>(line) }.getOrNull() ?: continue
             if (env.deviceId != pairing.deviceId) continue
 
             val plaintext = runCatching { codec.open(env.seq, env.payload, aad) }.getOrNull()
                 ?: continue
+
+            if (!authenticated) {
+                // First frame that opens under the derived keys proves the peer holds
+                // the pairing key; only now consume the salt (also closes the race of
+                // two concurrent connections presenting the same salt).
+                if (!claimSalt(salt) || !pairing.claimSalt(salt)) return EndReason.STREAM_CLOSED
+                authenticated = true
+                stream.setReadTimeout(0)
+            }
 
             val request = runCatching {
                 json.decodeFromString<Request>(String(plaintext))
@@ -130,5 +196,24 @@ class FrameSession(
             stream.writeLine(json.encodeToString(reply))
         }
         return EndReason.STOPPED
+    }
+
+    private fun isSaltUsed(salt: ByteArray): Boolean = synchronized(usedSalts) {
+        usedSalts.contains(Base64.encodeToString(salt, Base64.NO_WRAP))
+    }
+
+    /** Records [salt] as used; false if it was already seen (a replayed handshake). */
+    private fun claimSalt(salt: ByteArray): Boolean = synchronized(usedSalts) {
+        val key = Base64.encodeToString(salt, Base64.NO_WRAP)
+        if (!usedSalts.add(key)) return false
+        if (usedSalts.size > MAX_REMEMBERED_SALTS) usedSalts.remove(usedSalts.first())
+        true
+    }
+
+    companion object {
+        /** How long a connection may sit without sending its Hello. */
+        const val HELLO_TIMEOUT_MS = 10_000L
+
+        private const val MAX_REMEMBERED_SALTS = 1024
     }
 }

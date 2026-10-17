@@ -37,9 +37,12 @@ import kotlinx.serialization.json.jsonObject
 object McpServer {
 
     private const val LATEST_PROTOCOL = "2025-06-18"
+    private val SUPPORTED_PROTOCOLS = setOf("2024-11-05", "2025-03-26", "2025-06-18")
     private const val SERVER_VERSION = "0.4.0"
 
     private fun log(msg: String) = System.err.println(msg)
+
+    private val SUPPORTED_MODES = setOf("auto", "adb", "app", "relay")
 
     /**
      * Picks a backend.
@@ -58,6 +61,29 @@ object McpServer {
      */
     fun chooseLink(): Link {
         val mode = (System.getenv("MCPSERVED_MODE") ?: "auto").lowercase()
+
+        // An unrecognised mode must not quietly behave like `auto`: `auto` can
+        // end at AdbLink (device-wide shell, no grants), which is the opposite of
+        // what someone who asked for `tunnel` expects. Quick Tunnels expose the
+        // bearer-authenticated HTTP /mcp endpoint, which hosts connect to directly.
+        if (mode !in SUPPORTED_MODES) {
+            error(
+                "MCPSERVED_MODE=$mode is not supported by the desktop app " +
+                    "(supported: ${SUPPORTED_MODES.joinToString(", ")}). " +
+                    if (mode == "tunnel") {
+                        "MCPSERVED_MODE=tunnel is incompatible with the HTTP Quick Tunnel. " +
+                            "Register MCPSERVED_HOST/mcp directly as a remote MCP URL with the " +
+                            "Authorization: Bearer header shown by the app's Share action."
+                    } else {
+                        ""
+                    },
+            )
+        }
+
+        val explicitHost = System.getenv("MCPSERVED_HOST")?.takeIf { it.isNotBlank() }
+        if (explicitHost != null && mode != "app") {
+            error("MCPSERVED_HOST is only used with MCPSERVED_MODE=app (it is set, but mode is $mode).")
+        }
 
         if (mode == "relay") {
             val config = ConfigStore.tryLoad()
@@ -81,6 +107,18 @@ object McpServer {
 
         if (mode == "app" && config == null) {
             error("MCPSERVED_MODE=app, but no pairing was found. Pair the device first.")
+        }
+
+        if (config != null && explicitHost != null) {
+            // A directly reachable address (IPv6 literal, UPnP mapping): no adb
+            // forward and no discovery, and never a silent fall-back to adb.
+            val direct = AppLink(config, Target.lan(explicitHost, config.port))
+            if (probe(direct)) return direct
+            direct.close()
+            error(
+                "MCPSERVED_HOST=$explicitHost did not answer. Check that the device is armed, " +
+                    "remote access is enabled for that path, and the address/port are current.",
+            )
         }
 
         if (config != null) {
@@ -224,7 +262,10 @@ object McpServer {
     }
 
     private fun initializeResult(params: JsonObject?): JsonObject {
-        val requested = params?.str("protocolVersion") ?: LATEST_PROTOCOL
+        // Echo the client's version only if this server speaks it; otherwise answer
+        // with the latest it does and let the client decide whether to proceed
+        // (MCP lifecycle: the server responds with a version it supports).
+        val requested = params?.str("protocolVersion")?.takeIf { it in SUPPORTED_PROTOCOLS } ?: LATEST_PROTOCOL
         return buildJsonObject {
             put("protocolVersion", JsonPrimitive(requested))
             put("capabilities", buildJsonObject { put("tools", buildJsonObject { }) })

@@ -12,14 +12,42 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-# Least-privilege default token for all jobs. The build-and-release job overrides this
-# with the elevated scopes it needs (tags/releases/issues) in its own permissions block.
+# Least-privilege default token for all jobs. Jobs that need more (the dependency-graph
+# submission in unit-tests, tags/releases/issues in build-and-release) override this in
+# their own permissions block.
 permissions:
-  contents: write
+  contents: read
 
 jobs:
+  node-tests:
+    # The relay is the one module with its own test suite; the npm MCP server has none yet,
+    # so it is type-checked (tsc build) here.
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Relay tests
+        working-directory: relay
+        run: |
+          npm ci
+          npm test
+
+      - name: MCP server build
+        working-directory: mcp
+        run: |
+          npm ci
+          npm run build
+
   unit-tests:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # dependency-graph submission (setup-gradle)
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -79,7 +107,7 @@ jobs:
           path: '**/build/reports/tests/'
 
   build-and-release:
-    needs: unit-tests
+    needs: [unit-tests, node-tests]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -156,7 +184,6 @@ jobs:
         id: gradle-build
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_TOKEN: ${{ secrets.GH_TOKEN }}
           # Consumed by the signingConfigs.release block in app/build.gradle.kts. The debug build type
           # uses this release config when the keystore is present (see app/build.gradle.kts), keeping
           # the auto-published artifact's signature stable; absent it, the default debug key is used.

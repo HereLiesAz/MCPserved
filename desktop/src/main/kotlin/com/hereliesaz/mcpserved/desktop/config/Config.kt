@@ -71,7 +71,23 @@ object ConfigStore {
         Files.createDirectories(dir)
         restrict(dir, dirPerms)
         val bytes = json.encodeToString(StoredConfig.serializer(), stored)
-        Files.writeString(configPath, bytes + "\n")
+        // Create the file already owner-only (no window where it is world-readable
+        // under a permissive umask) and swap it into place so a crash mid-write
+        // cannot leave a truncated pairing.
+        val tmp = dir.resolve(configPath.fileName.toString() + ".tmp")
+        Files.deleteIfExists(tmp)
+        try {
+            Files.createFile(tmp, java.nio.file.attribute.PosixFilePermissions.asFileAttribute(filePerms))
+        } catch (_: UnsupportedOperationException) {
+            Files.createFile(tmp) // non-POSIX filesystem (Windows)
+        }
+        Files.writeString(tmp, bytes + "\n")
+        restrict(tmp, filePerms)
+        try {
+            Files.move(tmp, configPath, java.nio.file.StandardCopyOption.REPLACE_EXISTING, java.nio.file.StandardCopyOption.ATOMIC_MOVE)
+        } catch (_: java.nio.file.AtomicMoveNotSupportedException) {
+            Files.move(tmp, configPath, java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+        }
         restrict(configPath, filePerms)
     }
 

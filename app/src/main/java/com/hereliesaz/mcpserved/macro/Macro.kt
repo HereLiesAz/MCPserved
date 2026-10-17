@@ -9,7 +9,7 @@ import kotlinx.serialization.Serializable
  *
  * [steps] are plain [Request]s — the same wire type a live AI action uses —
  * restricted at recording and playback time to [isRecordableStep]'s subset.
- * [MacroPlayer] runs each one through the exact same
+ * [com.hereliesaz.mcpserved.service.Dispatcher]'s macro-run path runs each one through the exact same
  * [com.hereliesaz.mcpserved.service.Dispatcher] path a remote action takes,
  * so a macro can never do more than [pkg]'s grant already permits, and every
  * step still lands in the session log like any other action.

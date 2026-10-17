@@ -109,22 +109,6 @@ android {
                 cppFlags += "-std=c++17"
             }
         }
-
-        // Crash auto-reporting: CrashUploadWorker files a GitHub issue containing the crash log, using
-        // this token. It is read at BUILD time from the GH_TOKEN env var (the same one
-        // settings.gradle.kts uses for the GitHub Packages maven repo), with a gradle-property
-        // fallback. When neither is present (typical local dev) it stays empty and CrashUploadWorker
-        // no-ops — so nothing breaks locally and no token is ever committed to Git.
-        //
-        // SECURITY: a non-empty token here is embedded in the shipped APK's BuildConfig and CAN be
-        // extracted by anyone who decompiles the app. Use a FINE-GRAINED token scoped to ONLY
-        // "Issues: write" on this single repo (HereLiesAz/GraffitiXR) — never a broad/classic PAT —
-        // so that a leaked token can, at worst, open issues on this one repo.
-        // GitHub tokens are [A-Za-z0-9_] only (ghp_* / github_pat_*), so no string escaping is needed.
-        val crashReportToken = System.getenv("GH_TOKEN")
-            ?: (project.findProperty("GH_TOKEN") as String?)
-            ?: ""
-        buildConfigField("String", "GH_TOKEN", "\"$crashReportToken\"")
     }
 
     // Two distribution channels, one codebase. `playstore` never declares
@@ -327,13 +311,16 @@ dependencies {
 val verifyCloudflaredBinaries = tasks.register("verifyCloudflaredBinaries") {
     group = "verification"
     description = "Verify the exact checked-in cloudflared ARM executables."
+    // Resolved at configuration time: touching `project` inside doLast is rejected by the
+    // configuration cache.
+    val jniLibsDir = layout.projectDirectory.dir("src/main/jniLibs")
     doLast {
         val expected = mapOf(
             "arm64-v8a" to "b96ce1ff861edb895fd1a87c0d67b31391591efc",
             "armeabi-v7a" to "0142aad65724c21a93e83177142708334260a04d",
         )
         expected.forEach { (abi, gitBlobSha) ->
-            val binary = project.file("src/main/jniLibs/$abi/libcloudflared.so")
+            val binary = jniLibsDir.file("$abi/libcloudflared.so").asFile
             check(binary.isFile) { "Missing bundled cloudflared for $abi" }
             val digest = MessageDigest.getInstance("SHA-1")
             digest.update("blob ${binary.length()}\u0000".toByteArray(Charsets.UTF_8))

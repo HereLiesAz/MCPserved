@@ -246,12 +246,12 @@ const ALWAYS: ToolDef[] = [
   {
     name: "notifications",
     description:
-      "Read the notification shade, filtered to authorized packages.",
+      "Read the notification shade. Filtered to authorized packages in app mode; over adb there are no grants, so it returns every package's notifications.",
     inputSchema: obj({}),
     handler: async (_args, link) => {
       const r = await link.send({ op: "notifications" });
       if (!r.ok) return `error: ${r.error}`;
-      if (r.items.length === 0) return "no notifications from authorized packages";
+      if (r.items.length === 0) return "no notifications";
       return r.items
         .map((n: any) => `${n.pkg}: ${n.title ?? ""} — ${n.text ?? ""}`)
         .join("\n");

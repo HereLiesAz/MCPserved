@@ -2,6 +2,16 @@ import { adbReady, adbShell, adbShellText, shellQuote } from "./adb.js";
 import type { Link } from "./link.js";
 
 /**
+ * Coerces a model-supplied number to an integer before it is spliced into a
+ * shell command line. Anything non-numeric throws rather than reaching the shell.
+ */
+function int(v: unknown): number {
+  const n = Number(v);
+  if (!Number.isFinite(n)) throw new Error(`expected a number, got ${JSON.stringify(v)}`);
+  return Math.trunc(n);
+}
+
+/**
  * Controls the device purely through `adb`, no on-device app required.
  *
  * This is the quick-connect path: enable USB debugging (or adb-over-Wi-Fi),
@@ -291,7 +301,10 @@ export class AdbLink implements Link {
   private async type(req: any): Promise<any> {
     if (req.nodeId) {
       const p = this.nodeCenters.get(req.nodeId);
-      if (p) await adbShellText(`input tap ${p.x} ${p.y}`);
+      // Typing into "whatever is focused" when the target is unknown could land
+      // text in the wrong field; refuse instead.
+      if (!p) return { ok: false, error: "unknown node id — call ui_tree first" };
+      await adbShellText(`input tap ${p.x} ${p.y}`);
     }
     // `input text` takes spaces as %s and cannot express newlines or most
     // non-ASCII. Good enough for field entry; the app path handles the rest.

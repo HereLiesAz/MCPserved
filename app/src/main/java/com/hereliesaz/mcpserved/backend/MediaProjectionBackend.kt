@@ -139,8 +139,14 @@ class MediaProjectionBackend(private val appContext: Context) : ControlBackend {
                                 val image = r.acquireLatestImage()
                                 if (image == null) return@setOnImageAvailableListener
                                 val outcome = runCatching {
-                                    val bmp = imageToBitmap(image, width, height)
-                                    image.close()
+                                    // Close in a finally: a conversion that throws must
+                                    // still return the buffer to the reader, or two such
+                                    // failures exhaust its two-image pool.
+                                    val bmp = try {
+                                        imageToBitmap(image, width, height)
+                                    } finally {
+                                        image.close()
+                                    }
                                     try {
                                         val (bytes, w, h) = downscaleAndEncode(bmp, maxPx)
                                         CapturedImage("image/jpeg", bytes, w, h)

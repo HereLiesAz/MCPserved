@@ -148,8 +148,8 @@ class AppLink(
         val deadline = System.currentTimeMillis() + timeoutMs
         while (true) {
             val remaining = deadline - System.currentTimeMillis()
-            if (remaining <= 0) return err("device did not respond within ${timeoutMs}ms")
-            val line = stream.readLine(remaining) ?: return err("connection closed")
+            if (remaining <= 0) return abandon("device did not respond within ${timeoutMs}ms")
+            val line = stream.readLine(remaining) ?: return abandon("connection closed or timed out")
             if (line.isEmpty()) continue
 
             val env = try {
@@ -171,6 +171,20 @@ class AppLink(
             return ProtoJson.parseToJsonElement(String(plaintext, Charsets.UTF_8)) as? JsonObject
                 ?: err("device returned a non-object response")
         }
+    }
+
+    /**
+     * Drops the connection before reporting a failed exchange.
+     *
+     * Replies are matched to requests purely by order. Leaving the stream open
+     * after a timeout would let the abandoned request's late reply be read as the
+     * answer to the next call; reconnecting (fresh salt, fresh keys, and a fresh
+     * Hello, which also recovers a Hello a relay dropped before the peer joined)
+     * keeps the pairing in step.
+     */
+    private fun abandon(message: String): JsonObject {
+        close()
+        return err(message)
     }
 
     private companion object {

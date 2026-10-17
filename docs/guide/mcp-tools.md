@@ -41,7 +41,7 @@ surface (no `shell`) is advertised so a call can still explain the failure.
 | --- | --- | --- | --- |
 | `ui_tree` | Read the current screen as an indented node tree. **The primary way to see the device** — prefer over `screenshot`. | `maxDepth` int, 1–100, default 40 | Requires `OBSERVE`. Node ids survive scrolling but not layout changes. Returns package, node count, pruned count, and the tree. |
 | `screenshot` | Capture the screen as an image. | `maxPx` int, 256–2048, default 768 | Requires `OBSERVE`. Use **only** when `ui_tree` returns no addressable nodes (games, canvas UI, some WebViews). Over adb, returned at native resolution (maxPx ignored); through the app, root or accessibility capture silently, otherwise it needs the operator's one-time MediaProjection consent grant (see [backends.md](backends.md#screen-capture-without-root-mediaprojectionbackend)). |
-| `notifications` | Read the notification shade, filtered to authorized packages. | none | Requires `OBSERVE` and, in app mode, notification access. Over adb it is a heuristic `dumpsys` parse. |
+| `notifications` | Read the notification shade. In app mode it is filtered to authorized packages. | none | Requires `OBSERVE` and, in app mode, notification access. Over adb there are no grants, so it is an unfiltered heuristic `dumpsys` parse of every package. |
 
 ## Interaction tools
 

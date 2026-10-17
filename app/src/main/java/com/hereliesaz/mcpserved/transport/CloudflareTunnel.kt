@@ -216,8 +216,10 @@ class CloudflareTunnel(private val appContext: Context) {
         }.apply { isDaemon = true; start() }
 
         val lastLines = ArrayDeque<String>()
+        val reader = proc.inputStream.bufferedReader()
+        var keepReading = false
         try {
-            proc.inputStream.bufferedReader().use { reader ->
+            run {
                 while (true) {
                     val line = try {
                         reader.readLine()
@@ -234,11 +236,26 @@ class CloudflareTunnel(private val appContext: Context) {
                     Log.d(TAG, "cloudflared: $line")
                     lastLines.addLast(line)
                     if (lastLines.size > MAX_DIAGNOSTIC_LINES) lastLines.removeFirst()
-                    extract(line)?.let { return AwaitOutcome.Found(it) }
+                    extract(line)?.let {
+                        keepReading = true
+                        return AwaitOutcome.Found(it)
+                    }
                 }
             }
         } finally {
             watchdog.interrupt()
+            if (keepReading) {
+                // Closing the pipe here would hand cloudflared (a Go program that
+                // logs continuously to the merged stdout/stderr) a SIGPIPE/EPIPE on
+                // its next log line and could kill the tunnel just after we report
+                // success. Keep draining it for as long as the process lives.
+                Thread {
+                    runCatching { while (reader.readLine() != null) { /* discard */ } }
+                    runCatching { reader.close() }
+                }.apply { isDaemon = true; start() }
+            } else {
+                runCatching { reader.close() }
+            }
         }
     }
 

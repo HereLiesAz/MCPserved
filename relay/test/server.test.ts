@@ -106,3 +106,46 @@ test("connection attempts beyond the per-address rate limit are rejected", async
     await relay.close();
   }
 });
+
+test("text frames are forwarded as text frames, binary as binary", async () => {
+  const relay = await startRelay({ port: 0, idleTimeoutMs: 60_000 });
+  try {
+    const device = await connect(relay.port, "frame-type-room", "device");
+    const host = await connect(relay.port, "frame-type-room", "host");
+
+    const text = new Promise<boolean>((resolve) => host.once("message", (_d, isBinary) => resolve(isBinary)));
+    device.send("hello");
+    assert.equal(await text, false);
+
+    const bin = new Promise<boolean>((resolve) => host.once("message", (_d, isBinary) => resolve(isBinary)));
+    device.send(Buffer.from([1, 2, 3]));
+    assert.equal(await bin, true);
+
+    device.close();
+    host.close();
+  } finally {
+    await relay.close();
+  }
+});
+
+test("an oversize frame closes that connection but does not crash the relay", async () => {
+  const relay = await startRelay({ port: 0, idleTimeoutMs: 60_000, maxPayloadBytes: 1024 });
+  try {
+    const evil = await connect(relay.port, "oversize-room", "device");
+    const closed = once(evil, "close");
+    evil.send(Buffer.alloc(4096));
+    await closed;
+
+    // The relay is still serving other rooms.
+    const device = await connect(relay.port, "after-room", "device");
+    const host = await connect(relay.port, "after-room", "host");
+    const got = once(host, "message");
+    device.send("still alive");
+    const [msg] = await got;
+    assert.equal(msg.toString(), "still alive");
+    device.close();
+    host.close();
+  } finally {
+    await relay.close();
+  }
+});

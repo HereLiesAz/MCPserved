@@ -190,7 +190,7 @@ session, and a session may expire while the socket is healthy.
   privileged backend exists, else a `SCREEN_BRIGHT_WAKE_LOCK` bounded to the max
   TTL. **Keep the TTL short.**
 - **Extended on success only.** Every successful action pushes expiry back by the
-  default TTL; a failed action does not. A caller stuck retrying against a screen
+  TTL the session was opened with (not the default); a failed action does not. A caller stuck retrying against a screen
   that will never accept input hits the TTL rather than outliving it.
 - Expiry is checked on read and by a 5-second **reaper** poll (not a timer, which
   fires late under doze). On lapse the screen hold is released and the log cleared.
