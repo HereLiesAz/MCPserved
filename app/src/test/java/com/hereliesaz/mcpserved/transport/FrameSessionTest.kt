@@ -301,6 +301,21 @@ class FrameSessionTest {
     }
 
     @Test
+    fun `a peer that sends only a Hello is dropped by the pre-auth deadline`() = runTest {
+        val devicePriv = X25519PrivateKeyParameters(SecureRandom())
+        val peerPub = X25519PrivateKeyParameters(SecureRandom()).generatePublicKey()
+        val session = FrameSession(FakeKeyPairing("device", devicePriv, peerPub)) { Response.Ack() }
+        val stream = TestFrameStream() // channel-backed: setReadTimeout is a no-op
+        val salt = ByteArray(16).also { SecureRandom().nextBytes(it) }
+        stream.inbound.trySend(
+            json.encodeToString(Hello(PROTO_VERSION, Base64.encodeToString(salt, Base64.NO_WRAP or Base64.URL_SAFE))),
+        )
+
+        // Never sends another line and never closes; virtual time must expire the wait.
+        assertEquals(FrameSession.EndReason.STREAM_CLOSED, session.run(stream))
+    }
+
+    @Test
     fun `a Hello at the wrong protocol version ends the session without dispatching`() = runTest {
         val devicePriv = X25519PrivateKeyParameters(SecureRandom())
         val peerPub = X25519PrivateKeyParameters(SecureRandom()).generatePublicKey()

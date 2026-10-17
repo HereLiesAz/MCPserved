@@ -321,14 +321,19 @@ class Dispatcher(
      * verified by reading the clip description back rather than trusting the call
      * to have taken effect; a write that was dropped falls through to the shell.
      */
+    private val clipSeq = java.util.concurrent.atomic.AtomicLong()
+
     private suspend fun clipboardSet(req: Request.ClipboardSet): Response {
         val out = enforcer.guard(Scope.TYPE, "clipboard_set") {
             val native = runCatching {
                 val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                cm.setPrimaryClip(ClipData.newPlainText("mcpserved", req.text))
+                // Unique label per attempt: a constant one would match a clip from an
+                // earlier successful write and mask a silently rejected new write.
+                val label = "mcpserved-${clipSeq.incrementAndGet()}-${System.nanoTime()}"
+                cm.setPrimaryClip(ClipData.newPlainText(label, req.text))
                 // Read the description back: hasPrimaryClip() is true whenever *any*
                 // clip exists, so it cannot tell a dropped write from a landed one.
-                cm.primaryClipDescription?.label?.toString() == "mcpserved"
+                cm.primaryClipDescription?.label?.toString() == label
             }.getOrDefault(false)
 
             if (native) Result.success(Unit)

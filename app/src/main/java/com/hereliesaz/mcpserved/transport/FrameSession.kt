@@ -155,8 +155,15 @@ class FrameSession(
 
         var authenticated = false
         while (isActive()) {
-            val line = stream.readLine() ?: return EndReason.STREAM_CLOSED
-            if (!authenticated && System.nanoTime() > deadline) return EndReason.STREAM_CLOSED
+            // Until a frame authenticates, every read is bounded by the REMAINING
+            // pre-auth time, so the deadline holds on channel-backed streams too.
+            val line = if (authenticated) {
+                stream.readLine()
+            } else {
+                val remainingMs = (deadline - System.nanoTime()) / 1_000_000L
+                if (remainingMs <= 0) return EndReason.STREAM_CLOSED
+                withTimeoutOrNull(remainingMs) { stream.readLine() }
+            } ?: return EndReason.STREAM_CLOSED
 
             val env = runCatching { json.decodeFromString<Envelope>(line) }.getOrNull() ?: continue
             if (env.deviceId != pairing.deviceId) continue
