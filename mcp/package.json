@@ -4,13 +4,15 @@
   "description": "Desktop MCP server that lets a model control an authorized Android device over adb, or the paired on-device app",
   "type": "module",
   "bin": {
-    "mcpserved": "./dist/index.js"
+    "mcpserved": "./dist/index.js",
+    "mcpserved-duplex": "./dist/duplex-server.js"
   },
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
     "pair": "node dist/index.js pair",
-    "test": "npm run build && node --test dist/*.test.js"
+    "test": "npm run build && node --test dist/*.test.js",
+    "duplex": "node dist/duplex-server.js"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.4",

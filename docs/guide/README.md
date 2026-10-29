@@ -30,3 +30,5 @@ the phone at all can reach it too, on explicit opt-in — see
 | [protocol](protocol.md) | The loopback wire protocol: framing, handshake, envelopes, request/response types, enums. |
 | [remote-access](remote-access.md) | Opt-in, off-by-default paths for a host with no local network path to the phone: a wider bind for a private mesh, listening directly on the phone's own IPv6 address, a UPnP port mapping, and a relay for the sealed-frame protocol. |
 | [troubleshooting](troubleshooting.md) | Common failures and their fixes. |
+
+- [Agent-neutral duplex MCP](duplex-agent-mcp.md) — two equal MCP peers, full-duplex messaging, per-peer authentication, bounds, and Aive integration.

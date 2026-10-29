@@ -216,3 +216,7 @@ Android app byte for byte, so the Kotlin `crypto/` package and the device's
 `crypto/` package must stay in lockstep. Installers are built with jpackage,
 which can only target its host OS, so each platform's installer must be built on
 that platform (there is currently no CI workflow for it).
+
+## Agent-neutral duplex MCP
+
+An independent, opt-in `mcpserved-duplex` process lets any two MCP clients communicate simultaneously through authenticated, bounded inboxes and live SSE notifications. It neither controls a phone nor grants either agent tool authority. Aive has a matching peer and governed session adapter. See [the duplex guide](docs/guide/duplex-agent-mcp.md).
