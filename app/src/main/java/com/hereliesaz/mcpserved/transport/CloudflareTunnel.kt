@@ -219,27 +219,25 @@ class CloudflareTunnel(private val appContext: Context) {
         val reader = proc.inputStream.bufferedReader()
         var keepReading = false
         try {
-            run {
-                while (true) {
-                    val line = try {
-                        reader.readLine()
-                    } catch (_: IOException) {
-                        // The watchdog's proc.destroy() closes this pipe out from
-                        // under a blocked readLine() — surfaces as an IOException
-                        // on some platforms, a plain EOF (null) on others.
-                        null
-                    } ?: return if (timedOut.get()) {
-                        AwaitOutcome.TimedOut(lastLines.toList())
-                    } else {
-                        AwaitOutcome.ProcessExited(lastLines.toList())
-                    }
-                    Log.d(TAG, "cloudflared: $line")
-                    lastLines.addLast(line)
-                    if (lastLines.size > MAX_DIAGNOSTIC_LINES) lastLines.removeFirst()
-                    extract(line)?.let {
-                        keepReading = true
-                        return AwaitOutcome.Found(it)
-                    }
+            while (true) {
+                val line = try {
+                    reader.readLine()
+                } catch (_: IOException) {
+                    // The watchdog's proc.destroy() closes this pipe out from
+                    // under a blocked readLine() — surfaces as an IOException
+                    // on some platforms, a plain EOF (null) on others.
+                    null
+                } ?: return if (timedOut.get()) {
+                    AwaitOutcome.TimedOut(lastLines.toList())
+                } else {
+                    AwaitOutcome.ProcessExited(lastLines.toList())
+                }
+                Log.d(TAG, "cloudflared: $line")
+                lastLines.addLast(line)
+                if (lastLines.size > MAX_DIAGNOSTIC_LINES) lastLines.removeFirst()
+                extract(line)?.let {
+                    keepReading = true
+                    return AwaitOutcome.Found(it)
                 }
             }
         } finally {
