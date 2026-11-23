@@ -10,7 +10,7 @@ on:
 # ⚡ Concurrency: Cancels the entire job if a new push comes in.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 # Least-privilege default token for all jobs. Jobs that need more (the dependency-graph
 # submission in unit-tests, tags/releases/issues in build-and-release) override this in
