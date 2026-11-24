@@ -76,7 +76,7 @@ class MainActivity : ComponentActivity() {
                 // rather than either real surface, so nothing gated flashes.
                 val consented by vm.hasConsented.collectAsStateWithLifecycle()
                 when (consented) {
-                    true -> Root(vm, onRequestScreenCapture = ::requestScreenCapture)
+                    true -> Root(vm, onRequestScreenCapture = ::requestScreenCapture, onCheckUpdates = { checkAppUpdate(this@MainActivity) })
                     false -> DisclosureScreen(onAccept = vm::grantConsent, onDecline = { finish() })
                     null -> Surface(
                         modifier = Modifier.fillMaxSize(),
@@ -97,7 +97,7 @@ private enum class Dest(val label: String, val icon: ImageVector) {
 }
 
 @Composable
-private fun Root(vm: MainViewModel, onRequestScreenCapture: () -> Unit) {
+private fun Root(vm: MainViewModel, onRequestScreenCapture: () -> Unit, onCheckUpdates: () -> Unit) {
     var dest by remember { mutableStateOf(Dest.STATUS) }
 
     Scaffold(
@@ -119,7 +119,7 @@ private fun Root(vm: MainViewModel, onRequestScreenCapture: () -> Unit) {
             color = MaterialTheme.colorScheme.background
         ) {
             when (dest) {
-                Dest.STATUS -> StatusScreen(vm, onRequestScreenCapture)
+                Dest.STATUS -> StatusScreen(vm, onRequestScreenCapture, onCheckUpdates)
                 Dest.CONNECT -> ConnectScreen(vm)
                 Dest.GRANTS -> GrantsScreen(vm)
                 Dest.MACROS -> MacrosScreen(vm)

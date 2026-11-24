@@ -2,7 +2,7 @@
 
 **MCPserved**
 
-_Last updated: 2026-07-20_
+_Last updated: 2026-11-23_
 
 MCPserved is a local-first device-control tool. It is built so that there is
 almost nothing to have a privacy policy about: the app collects no personal
@@ -54,9 +54,7 @@ The app keeps no other records.
 By default, MCPserved makes **no outbound internet connections.** Its control
 channel is a listener bound to the loopback address `127.0.0.1`, reachable only
 through an `adb` connection you establish yourself (a USB cable, or
-adb-over-Wi-Fi on your own network). The `INTERNET` permission is present only
-because Android requires it to open any socket, including a loopback one; by
-default it is not used to contact any server.
+adb-over-Wi-Fi on your own network). The `INTERNET` permission is present because Android requires it to open any socket, including a loopback one. An explicit Check for updates action contacts GitHub or Google Play for release metadata; it sends no screen, grant, pairing, or session data. There is no automatic update network request.
 
 The companion desktop server is a separate open-source program that runs on your
 own computer and communicates with the device over that same local connection. It
