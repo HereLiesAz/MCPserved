@@ -220,3 +220,7 @@ that platform (there is currently no CI workflow for it).
 ## Agent-neutral duplex MCP
 
 An independent, opt-in `mcpserved-duplex` process lets any two MCP clients communicate simultaneously through authenticated, bounded inboxes and live SSE notifications. It neither controls a phone nor grants either agent tool authority. Aive has a matching peer and governed session adapter. See [the duplex guide](docs/guide/duplex-agent-mcp.md).
+
+## Android updates
+
+The Status screen includes **Check for updates**, using AzNavRail 12.5. It is manual-only to preserve the default no-outbound-network contract; Play and GitHub flavors query their own official distribution, without sending control data.

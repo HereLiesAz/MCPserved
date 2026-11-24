@@ -51,9 +51,10 @@ import com.hereliesaz.mcpserved.BuildConfig
  *
  * Notification access is optional and never blocks this button; it is a
  * one-line secondary link, not a row competing for the same attention.
+ * The update action is explicitly user-triggered to preserve the local-only default.
  */
 @Composable
-fun StatusScreen(vm: MainViewModel, onRequestScreenCapture: () -> Unit = {}) {
+fun StatusScreen(vm: MainViewModel, onRequestScreenCapture: () -> Unit = {}, onCheckUpdates: () -> Unit = {}) {
     val tick by vm.statusTick.collectAsState()
     val connecting by vm.connecting.collectAsState()
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { vm.refreshStatus() }
@@ -162,6 +163,7 @@ fun StatusScreen(vm: MainViewModel, onRequestScreenCapture: () -> Unit = {}) {
         TextButton(onClick = vm::openNotificationSettings) {
             Text("Also enable notification access (optional)")
         }
+        TextButton(onClick = onCheckUpdates) { Text("Check for updates") }
     }
 }
 

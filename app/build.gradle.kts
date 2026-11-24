@@ -250,6 +250,8 @@ androidComponents {
     }
 }
 dependencies {
+    implementation("com.github.HereLiesAz.AzNavRail:aznavrail-updates:12.5")
+    "playstoreImplementation"("com.github.HereLiesAz.AzNavRail:aznavrail-updates-play:12.5")
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)
