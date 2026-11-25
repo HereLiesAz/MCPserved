@@ -74,7 +74,7 @@ compose.desktop {
             // runs on.
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb, TargetFormat.Rpm)
             packageName = "MCPserved"
-            packageVersion = desktopNativeVersion
+            packageVersion = desktopShortVersion
             description = "Desktop MCP server for MCPserved — control an authorized Android device"
             vendor = "hereliesaz"
             copyright = "© hereliesaz"
@@ -86,10 +86,12 @@ compose.desktop {
             // and the desktop present the same mark. jpackage wants a different
             // container per OS: .png (Linux), .ico (Windows), .icns (macOS).
             linux {
+                packageVersion = desktopPackageVersion
                 menuGroup = "Development"
                 iconFile.set(project.file("icons/icon.png"))
             }
             windows {
+                packageVersion = windowsInstallerVersion
                 menuGroup = "MCPserved"
                 // A stable UUID keeps upgrades in place instead of installing
                 // side-by-side copies.
@@ -97,6 +99,7 @@ compose.desktop {
                 iconFile.set(project.file("icons/icon.ico"))
             }
             macOS {
+                packageVersion = desktopShortVersion
                 bundleID = "com.hereliesaz.mcpserved.desktop"
                 // CFBundleVersion is a positive build identifier, not the product major.
                 packageBuildVersion = macInstallerBuildVersion
