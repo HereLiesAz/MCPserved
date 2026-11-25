@@ -81,7 +81,7 @@ compose.desktop {
 
 // Exercise the actual installer payload on CI's native OS, not only JVM classes.
 // Keep local packaging independent of Python; developers can opt in after packaging.
-val verifyDesktopPackages = tasks.register<Exec>("verifyDesktopPackages") {
+val smokeDesktopPackages = tasks.register<Exec>("smokeDesktopPackages") {
     group = "verification"
     description = "Extract native installers and verify the packaged MCP stdio handshake."
     val python = if (System.getProperty("os.name").startsWith("Windows", ignoreCase = true)) "python" else "python3"
@@ -94,6 +94,6 @@ val verifyDesktopPackages = tasks.register<Exec>("verifyDesktopPackages") {
 }
 if (providers.environmentVariable("CI").orNull == "true") {
     tasks.matching { it.name == "packageDistributionForCurrentOS" }.configureEach {
-        finalizedBy(verifyDesktopPackages)
+        finalizedBy(smokeDesktopPackages)
     }
 }

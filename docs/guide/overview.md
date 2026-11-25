@@ -78,10 +78,11 @@ however it likes.
 
 `MCPSERVED_MODE` pins the choice: `adb` forces the quick-connect path, `app`
 forces the paired path (and fails loudly if no pairing is on file or the app
-does not answer). The default, `auto`, prefers the app when a pairing exists and
-the app answers, and falls back to adb otherwise. A pinned `app` mode never
-silently becomes adb, because adb is device-wide authority and falling back to it
-would quietly widen what the operator asked to restrict. See
+does not answer). The default, `auto`, uses raw adb only when no pairing file
+exists. A paired app that is unreachable, or an unreadable or invalid pairing
+file, stops the connection. If pairing is added during an unpaired adb session,
+the server refuses further raw adb requests; restart the host's server to use the
+pairing. Neither `auto` nor `app` silently widens authority to device-wide adb. See
 [backends](backends.md) and [desktop-server](desktop-server.md).
 
 ## Who it's for

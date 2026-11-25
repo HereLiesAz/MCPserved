@@ -37,10 +37,8 @@ MCPSERVED_ADB_SERIAL=192.168.1.5:5555 node dist/index.js
 
 ## App not reachable over adb-forward
 
-**Symptom (auto mode):** the server silently falls back to adb. **Symptom (app
-mode):** `MCPSERVED_MODE=app, but the on-device app did not answer over
-adb-forward. Check that it is installed, paired, and armed, and that the device is
-reachable`.
+**Symptom (paired auto or app mode):** the server refuses to connect because the
+paired app did not answer. It does not switch to raw adb.
 
 **Checklist:**
 
@@ -113,13 +111,16 @@ pair' first.`
 **Cause:** `app` mode is pinned but there is no pairing on file. A pinned `app`
 mode never silently falls back to adb, because adb is device-wide authority.
 
-**Fix:** run the pairing flow, or drop to `auto`:
+**Fix:** run the pairing flow, arm the app, grant packages, and restart the MCP
+server. If the file exists but is invalid or unreadable, repair the pairing first.
 
 ```bash
-npx mcpserved pair            # then arm and grant on the device
-# or
-MCPSERVED_MODE=auto node dist/index.js
+npx mcpserved pair
 ```
+
+To intentionally use the app-free, device-wide ADB backend instead, explicitly set
+`MCPSERVED_MODE=adb`. Switching a paired session to `auto` does not bypass an
+unreachable app.
 
 ## Nothing is authorized (app backend)
 
