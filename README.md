@@ -217,7 +217,7 @@ the sealed-frame wire format (X25519 / HKDF-SHA256 / ChaCha20-Poly1305) with the
 Android app byte for byte, so the Kotlin `crypto/` package and the device's
 `crypto/` package must stay in lockstep. Installers are built with jpackage,
 which can only target its host OS, so each platform's installer must be built on
-that platform (there is currently no CI workflow for it).
+that platform. [Central desktop packaging](https://github.com/HereLiesAz/workflows/blob/main/.github/workflows/desktop-package.yml) builds all four native formats and checks the packaged MCP stdio handshake before uploading installers. For a local check, run `./gradlew :desktop:verifyDesktopPackages` after packaging (using the same `-PdesktopPackageVersion` if set). Python 3 and native extraction utilities are required for this check, not for ordinary local packaging. The check extracts the payload without installing a service or contacting a phone.
 
 ## Agent-neutral duplex MCP
 
