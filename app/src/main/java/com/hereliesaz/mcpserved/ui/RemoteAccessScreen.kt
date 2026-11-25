@@ -152,17 +152,17 @@ fun RemoteAccessScreen(vm: MainViewModel) {
         Text(
             "One tap: arms the service and opens a Cloudflare tunnel straight to " +
                 "this phone's MCP server. The address it hands back is a remote " +
-                "MCP endpoint — paste it and the token into a cloud assistant " +
-                "(claude.ai → Connectors, or Claude Code) and it's talking to this " +
-                "phone. No computer, no desktop app, nothing else to install. The " +
-                "tunnel dies when you stop it or close the app; for an address that " +
-                "stays put, deploy your own relay below.",
+                "MCP endpoint. In ChatGPT, add the URL with OAuth, then approve " +
+                "on the tunnel's consent page using the device token shown below. " +
+                "Other hosts can still use the Authorization header. No desktop app " +
+                "needed. Stopping the tunnel revokes its OAuth tokens. For a stable " +
+                "HTTP connector use Stable address below.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
         Spacer(Modifier.height(8.dp))
         // One tap, not three: this arms the service, opens the tunnel, and the
-        // moment a URL exists pops the share sheet with the connector details
+        // moment a URL exists pops the share sheet with non-secret connector details
         // filled in. awaitingShare is scoped to *this* press, so reopening the
         // screen on an already-running tunnel never re-pops the sheet.
         var awaitingShare by remember { mutableStateOf(false) }
@@ -175,7 +175,7 @@ fun RemoteAccessScreen(vm: MainViewModel) {
                     type = "text/plain"
                     putExtra(Intent.EXTRA_TEXT, vm.tunnelConnectString(state.url))
                 }
-                context.startActivity(Intent.createChooser(intent, "Send to your AI assistant"))
+                context.startActivity(Intent.createChooser(intent, "Share connector URL and instructions"))
             } else if (state is ControlService.Companion.TunnelState.Error) {
                 awaitingShare = false
             }
@@ -213,6 +213,15 @@ fun RemoteAccessScreen(vm: MainViewModel) {
                 val endpoint = vm.publicMcpEndpoint(state.url)
                 Spacer(Modifier.height(12.dp))
                 ConnectorField("Connector URL", endpoint)
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "ChatGPT: select OAuth and automatic client registration (public client). " +
+                        "Paste only the device token on the consent page at this exact HTTPS origin.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.height(8.dp))
+                ConnectorField("Device token for OAuth consent", mcpBearer)
                 Spacer(Modifier.height(8.dp))
                 ConnectorField("Authorization header", "Bearer $mcpBearer")
                 Spacer(Modifier.height(8.dp))
@@ -323,6 +332,15 @@ fun RemoteAccessScreen(vm: MainViewModel) {
                 val endpoint = vm.publicMcpEndpoint(s.url)
                 Spacer(Modifier.height(12.dp))
                 ConnectorField("Connector URL", endpoint)
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "ChatGPT: select OAuth and automatic client registration (public client). " +
+                        "Paste only the device token on the consent page at this exact HTTPS origin.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.height(8.dp))
+                ConnectorField("Device token for OAuth consent", mcpBearer)
                 Spacer(Modifier.height(8.dp))
                 ConnectorField("Authorization header", "Bearer $mcpBearer")
                 Spacer(Modifier.height(8.dp))

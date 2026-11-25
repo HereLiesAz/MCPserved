@@ -383,7 +383,7 @@ class ControlService : Service() {
     }
 
     /**
-     * Starts a Cloudflare Quick Tunnel exposing [localWsServer] — an
+     * Starts a Cloudflare Quick Tunnel exposing [mcpServer] — an
      * anonymous, no-account, session-scoped alternative to deploying a
      * persistent relay. Owned here rather than by the ViewModel that
      * triggers it, since a `Process` handle left only in a ViewModel field
@@ -405,7 +405,10 @@ class ControlService : Service() {
             val result = tunnel.start(McpServer.DEFAULT_HTTP_PORT)
             if (cloudflareTunnel === tunnel) {
                 _tunnelState.value = when (result) {
-                    is CloudflareTunnel.Result.Success -> TunnelState.Running(result.url)
+                    is CloudflareTunnel.Result.Success -> {
+                        mcpServer.enableOAuthOrigin(result.url)
+                        TunnelState.Running(result.url)
+                    }
                     is CloudflareTunnel.Result.Failure -> TunnelState.Error(result.message)
                 }
             }
@@ -414,6 +417,9 @@ class ControlService : Service() {
 
     /** Kills the running tunnel, if any. The public URL stops answering immediately. */
     fun stopTunnel() {
+        (_tunnelState.value as? TunnelState.Running)?.let {
+            if (::mcpServer.isInitialized) mcpServer.disableOAuthOrigin(it.url)
+        }
         cloudflareTunnel?.stop()
         cloudflareTunnel = null
         _tunnelState.value = TunnelState.Idle
@@ -432,7 +438,10 @@ class ControlService : Service() {
             val result = tunnel.startNamed(runToken, hostname)
             if (namedTunnel === tunnel) {
                 _namedTunnelState.value = when (result) {
-                    is CloudflareTunnel.Result.Success -> TunnelState.Running(result.url)
+                    is CloudflareTunnel.Result.Success -> {
+                        mcpServer.enableOAuthOrigin(result.url)
+                        TunnelState.Running(result.url)
+                    }
                     is CloudflareTunnel.Result.Failure -> TunnelState.Error(result.message)
                 }
             }
@@ -441,6 +450,9 @@ class ControlService : Service() {
 
     /** Kills the named tunnel, if running. The stable address stops answering until restarted. */
     fun stopNamedTunnel() {
+        (_namedTunnelState.value as? TunnelState.Running)?.let {
+            if (::mcpServer.isInitialized) mcpServer.disableOAuthOrigin(it.url)
+        }
         namedTunnel?.stop()
         namedTunnel = null
         _namedTunnelState.value = TunnelState.Idle

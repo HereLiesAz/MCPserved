@@ -512,31 +512,20 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun publicMcpEndpoint(baseUrl: String): String = baseUrl.trimEnd('/') + "/mcp"
 
     /**
-     * Connect instructions for the one-tap Quick Tunnel.
-     *
-     * The tunnel now fronts the Streamable-HTTP [McpServer] (not the sealed-frame
-     * WebSocket), so the public URL is a bearer-authed remote MCP endpoint a host
-     * wires to directly — no `mcpserved` client, no pairing. Both forms, since a
-     * host either takes a URL + Authorization header (claude.ai, Claude Code) or
-     * reads a config file.
+     * Non-secret connector instructions for the one-tap Quick Tunnel.
+     * Sharing to an assistant must never include the reusable device bearer.
+     * Explicit Copy Claude Code command and config QR remain for header-based hosts.
      */
-    fun tunnelConnectString(url: String): String {
-        val endpoint = publicMcpEndpoint(url)
-        val bearer = _mcpBearer.value
-        return """
-            MCPserved — remote MCP server (Streamable HTTP, no desktop needed).
+    fun tunnelConnectString(url: String): String = """
+        MCPserved — remote MCP server (Streamable HTTP, no desktop needed).
 
-            Add as a connector (e.g. claude.ai → Settings → Connectors):
-              URL:    $endpoint
-              Header: Authorization: Bearer $bearer
+        ChatGPT: add a custom MCP server with OAuth and public-client dynamic registration.
+        URL: ${publicMcpEndpoint(url)}
+        On the tunnel's authorization page, verify its hostname and approve using the
+        device token from the phone. Do not paste the token into chat.
 
-            Claude Code, one line:
-              claude mcp add --transport http mcpserved $endpoint --header "Authorization: Bearer $bearer"
-
-            Config-file hosts:
-            ${mcpConfigJson(endpoint)}
-        """.trimIndent()
-    }
+        For header-based hosts, copy the Claude Code command or config QR from the app.
+    """.trimIndent()
 
     /**
      * The connect string for a persistent, operator-deployed relay.

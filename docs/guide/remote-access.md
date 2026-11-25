@@ -22,9 +22,32 @@ depend on Cloudflare at all.
 Tap **Set up remote access** on the "This phone" tab. The app starts an
 anonymous Cloudflare Quick Tunnel that forwards HTTPS requests to the phone's
 bearer-authenticated `McpServer` on port 8791. The share sheet supplies the
-public `https://…trycloudflare.com/mcp` URL and its Authorization bearer
-header. Register **that HTTP MCP endpoint directly** with your host; it needs
+public `https://…trycloudflare.com/mcp` URL without credentials. The device
+bearer remains in the app for OAuth consent or explicit header configuration.
+Register **that HTTP MCP endpoint directly** with your host; it needs
 neither desktop `mcpserved` nor X25519 pairing.
+
+### ChatGPT (OAuth)
+
+Register the exact public `https://…/mcp` URL as a custom MCP server in ChatGPT,
+select OAuth and dynamic client registration with public-client authentication
+(`none`). The device publishes protected-resource and authorization-server
+metadata only for its active Quick or Named Tunnel origin. When ChatGPT opens
+the authorization page, verify the hostname matches the app, copy the device
+token (not the room token) from the Remote Access screen, paste it on that
+page, and explicitly approve. Never paste it into the conversation.
+
+The on-device OAuth service accepts only the registered ChatGPT redirect
+`https://chatgpt.com/connector_platform_oauth_redirect` and requires the
+authorization-code grant, S256 PKCE, state, and the exact MCP resource.
+Access tokens expire after one hour; rotating refresh tokens are limited to
+24 hours from consent; replay of a spent refresh token revokes its token family.
+Tokens and consent requests live only in memory;
+disarming, stopping that tunnel or rotating the device bearer revokes them.
+Public client registrations remain valid across restarts, but a new consent
+is needed after revocation. Device grants and session enforcement are unchanged.
+A Quick Tunnel URL changes on restart; use the named tunnel for a stable connector.
+Cloudflare terminates TLS and can inspect the consent and MCP requests.
 
 For Claude Code, use the command supplied by the app:
 
