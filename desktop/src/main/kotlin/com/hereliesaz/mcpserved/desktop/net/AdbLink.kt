@@ -37,8 +37,9 @@ class AdbLink(private val stillUnpaired: (() -> Boolean)? = null) : Link {
 
     @Synchronized
     override fun send(request: JsonObject, timeoutMs: Long): JsonObject {
-        if (!pairingBlocked && stillUnpaired != null) {
-            pairingBlocked = !runCatching { stillUnpaired.invoke() }.getOrDefault(false)
+        val checkPairing = stillUnpaired
+        if (!pairingBlocked && checkPairing != null) {
+            pairingBlocked = !runCatching { checkPairing() }.getOrDefault(false)
         }
         if (pairingBlocked) {
             return err("Pairing exists or is unreadable; restart MCPserved to use the paired app.")
