@@ -12,6 +12,7 @@ on:
 # Sets permissions of the GH_TOKEN to allow deployment to GitHub Pages
 permissions:
   contents: read
+  actions: read
   pages: write
   id-token: write
 
@@ -38,6 +39,21 @@ jobs:
         with:
           # Upload docs folder
           path: './docs/'
+      # The artifact service can acknowledge upload before the REST API lists
+      # the artifact. deploy-pages fails immediately when that listing is empty.
+      - name: Wait for Pages artifact visibility
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          for attempt in {1..12}; do
+            if gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts?name=github-pages" --jq '.artifacts[] | select(.name == "github-pages" and .expired == false) | .id' | grep -Eq '^[0-9]+$'; then
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "::error::Pages artifact did not become visible within 60 seconds."
+          exit 1
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v5
