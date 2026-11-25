@@ -40,7 +40,8 @@ The on-device OAuth service accepts only the registered ChatGPT redirect
 `https://chatgpt.com/connector_platform_oauth_redirect` and requires the
 authorization-code grant, S256 PKCE, state, and the exact MCP resource.
 Access tokens expire after one hour; rotating refresh tokens are limited to
-24 hours from consent. Tokens and consent requests live only in memory;
+24 hours from consent; replay of a spent refresh token revokes its token family.
+Tokens and consent requests live only in memory;
 disarming, stopping that tunnel or rotating the device bearer revokes them.
 Public client registrations remain valid across restarts, but a new consent
 is needed after revocation. Device grants and session enforcement are unchanged.

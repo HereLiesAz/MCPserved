@@ -45,6 +45,9 @@ internal class McpOAuth(
     private val codes = mutableMapOf<String, Code>()
     private val access = mutableMapOf<String, Grant>()
     private val refresh = mutableMapOf<String, Grant>()
+    // Retain consumed refresh digests until the consent expires. Replay by the
+    // same public client on the same resource revokes its whole token family.
+    private val spentRefresh = mutableMapOf<String, Grant>()
 
     private data class Consent(
         val origin: String, val client: String, val challenge: String,
@@ -53,7 +56,7 @@ internal class McpOAuth(
     private data class Code(val consent: Consent, val generation: String, val expires: Long)
     private data class Grant(
         val origin: String, val client: String, val generation: String,
-        val expires: Long, val consentExpires: Long,
+        val expires: Long, val consentExpires: Long, val family: String,
     )
 
     /** Only a successful service-owned tunnel may add an origin. */
@@ -74,12 +77,13 @@ internal class McpOAuth(
         codes.entries.removeAll { it.value.consent.origin == origin }
         access.entries.removeAll { it.value.origin == origin }
         refresh.entries.removeAll { it.value.origin == origin }
+        spentRefresh.entries.removeAll { it.value.origin == origin }
         Unit
     }
 
     /** Disarming destroys every live OAuth grant. Public registration survives. */
     fun clear() = synchronized(lock) {
-        origins.clear(); consents.clear(); codes.clear(); access.clear(); refresh.clear()
+        origins.clear(); consents.clear(); codes.clear(); access.clear(); refresh.clear(); spentRefresh.clear()
     }
 
     private fun origin(session: IHTTPSession): String? {
@@ -255,6 +259,11 @@ internal class McpOAuth(
         if (!validClient(client)) return error("invalid_client")
         if (p["scope"] != null && p["scope"] != SCOPE) return error("invalid_scope")
         val current = hash(bearer())
+        // Revoked bearer generations must not occupy live grant capacity.
+        codes.entries.removeAll { !same(it.value.generation, current) }
+        access.entries.removeAll { !same(it.value.generation, current) }
+        refresh.entries.removeAll { !same(it.value.generation, current) }
+        spentRefresh.entries.removeAll { !same(it.value.generation, current) }
         return when (p["grant_type"]) {
             "authorization_code" -> {
                 val code = codes[hash(p["code"] ?: "")] ?: return error("invalid_grant")
@@ -265,28 +274,41 @@ internal class McpOAuth(
                     return error("invalid_grant")
                 if (access.size >= LIMIT || refresh.size >= LIMIT) return error("temporarily_unavailable")
                 codes.remove(hash(p.getValue("code")))
-                issue(origin, client!!, current, clock() + REFRESH_MS)
+                issue(origin, client!!, current, clock() + REFRESH_MS, secret())
             }
             "refresh_token" -> {
                 val key = hash(p["refresh_token"] ?: "")
-                val grant = refresh[key] ?: return error("invalid_grant")
+                val grant = refresh[key]
+                if (grant == null) {
+                    val spent = spentRefresh[key]
+                    if (spent != null && spent.origin == origin && spent.client == client &&
+                        same(spent.generation, current)) {
+                        access.entries.removeAll { it.value.family == spent.family }
+                        refresh.entries.removeAll { it.value.family == spent.family }
+                    }
+                    return error("invalid_grant")
+                }
                 if (grant.origin != origin || grant.client != client || !same(grant.generation, current))
                     return error("invalid_grant")
-                if (access.size >= LIMIT) return error("temporarily_unavailable")
+                // Never discard a live replay marker to make room. An exhausted
+                // family must re-authorize rather than losing replay detection.
+                if (access.size >= LIMIT || spentRefresh.size >= LIMIT * 4)
+                    return error("temporarily_unavailable")
                 refresh.remove(key)
-                issue(origin, grant.client, current, grant.consentExpires)
+                spentRefresh[key] = grant
+                issue(origin, grant.client, current, grant.consentExpires, grant.family)
             }
             else -> error("unsupported_grant_type")
         }
     }
 
-    private fun issue(origin: String, client: String, generation: String, consentExpires: Long): Response {
+    private fun issue(origin: String, client: String, generation: String, consentExpires: Long, family: String): Response {
         val now = clock()
         val expires = minOf(now + ACCESS_MS, consentExpires)
         val accessToken = secret()
         val refreshToken = secret()
-        access[hash(accessToken)] = Grant(origin, client, generation, expires, consentExpires)
-        refresh[hash(refreshToken)] = Grant(origin, client, generation, consentExpires, consentExpires)
+        access[hash(accessToken)] = Grant(origin, client, generation, expires, consentExpires, family)
+        refresh[hash(refreshToken)] = Grant(origin, client, generation, consentExpires, consentExpires, family)
         return jsonResponse(buildJsonObject {
             put("access_token", accessToken)
             put("token_type", "Bearer")
@@ -302,6 +324,7 @@ internal class McpOAuth(
         codes.entries.removeAll { it.value.expires <= now }
         access.entries.removeAll { it.value.expires <= now }
         refresh.entries.removeAll { it.value.expires <= now }
+        spentRefresh.entries.removeAll { it.value.consentExpires <= now }
     }
 
     private fun redirect(origin: String, vararg params: Pair<String, String>): Response =

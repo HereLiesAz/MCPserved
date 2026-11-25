@@ -193,11 +193,16 @@ class McpOAuthTest {
         val refreshed = renew(client, initial.value("refresh_token"))
         assertEquals(200, refreshed.status)
         assertNotEquals(initial.value("refresh_token"), refreshed.value("refresh_token"))
-        assertEquals(400, renew(client, initial.value("refresh_token")).status)
         assertEquals(400, renew(client, refreshed.value("refresh_token"), OTHER).status)
-        credential = "rotated-device-bearer"
+        assertEquals(200, request("/mcp", bearer = refreshed.value("access_token")).status)
+        assertEquals(400, renew(client, initial.value("refresh_token")).status)
         assertEquals(401, request("/mcp", bearer = refreshed.value("access_token")).status)
         assertEquals(400, renew(client, refreshed.value("refresh_token")).status)
+        val beforeRotation = redeem(client, code(client))
+        assertEquals(200, beforeRotation.status)
+        credential = "rotated-device-bearer"
+        assertEquals(401, request("/mcp", bearer = beforeRotation.value("access_token")).status)
+        assertEquals(400, renew(client, beforeRotation.value("refresh_token")).status)
         val fresh = redeem(client, code(client))
         assertEquals(200, fresh.status)
         oauth.disableOrigin(ORIGIN)

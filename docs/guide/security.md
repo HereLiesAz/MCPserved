@@ -282,6 +282,7 @@ the existing device bearer submitted in a POST to the exact configured origin.
 The issued opaque tokens are separate from the bearer and bound to the origin,
 registered public client and bearer generation. Exact ChatGPT callback allowlisting,
 S256 PKCE and single-use codes prevent redirect substitution and code replay.
+Rotating refresh tokens detect replay and revoke the affected token family.
 No OAuth endpoint invokes the dispatcher; accepted MCP requests still use its
 existing session and package grants. Rotating the device bearer, stopping the
 tunnel or stopping the service invalidates OAuth grants. Registration IDs are
