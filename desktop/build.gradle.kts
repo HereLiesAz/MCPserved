@@ -57,9 +57,12 @@ val desktopBuildNumber = desktopVersionParts.getOrNull(3)?.toInt()
     ?: desktopVersionParts[2].toInt()
 val windowsInstallerVersion = "${desktopVersionParts[0]}.${desktopVersionParts[1]}.$desktopBuildNumber"
 val macInstallerBuildVersion = "${maxOf(1, desktopBuildNumber)}.0.0"
+// jpackage validates --app-version as CFBundleVersion before using Compose's
+// generated Info.plist. The placeholder is macOS-only and never a release version.
+val macJpackageVersion = if (desktopVersionParts[0] == "0") "1.0.0" else desktopShortVersion
 val desktopNativeVersion = when {
     System.getProperty("os.name").startsWith("Windows", ignoreCase = true) -> windowsInstallerVersion
-    System.getProperty("os.name").startsWith("Mac", ignoreCase = true) -> desktopShortVersion
+    System.getProperty("os.name").startsWith("Mac", ignoreCase = true) -> macJpackageVersion
     else -> desktopPackageVersion
 }
 
@@ -99,11 +102,38 @@ compose.desktop {
                 iconFile.set(project.file("icons/icon.ico"))
             }
             macOS {
-                packageVersion = desktopShortVersion
+                packageVersion = macJpackageVersion
                 bundleID = "com.hereliesaz.mcpserved.desktop"
                 // CFBundleVersion is a positive build identifier, not the product major.
                 packageBuildVersion = macInstallerBuildVersion
                 iconFile.set(project.file("icons/icon.icns"))
+            }
+        }
+    }
+}
+
+// Restore public macOS version before packaging the app image into a DMG.
+// The current desktop build has no Developer ID signing; refresh the ad-hoc
+// signature after changing Info.plist, without modifying nested runtime signatures.
+// Once production signing is configured, this must run before Developer ID signing.
+if (System.getProperty("os.name").startsWith("Mac", ignoreCase = true)) {
+    val bundle = layout.buildDirectory.dir("compose/binaries/main/app/MCPserved.app").get().asFile.absolutePath
+    val visibleVersion = desktopShortVersion
+    val bundleBuildVersion = macInstallerBuildVersion
+    tasks.matching { it.name == "createDistributable" }.configureEach {
+        inputs.property("mcpservedPublicMacVersion", visibleVersion)
+        inputs.property("mcpservedMacBuildVersion", bundleBuildVersion)
+        doLast {
+            val plist = "$bundle/Contents/Info.plist"
+            for (command in listOf(
+                listOf("/usr/libexec/PlistBuddy", "-c", "Set :CFBundleShortVersionString $visibleVersion", plist),
+                listOf("/usr/libexec/PlistBuddy", "-c", "Set :CFBundleVersion $bundleBuildVersion", plist),
+                listOf("/usr/bin/codesign", "--force", "--sign", "-", "--timestamp=none", "--preserve-metadata=entitlements,flags", bundle),
+                listOf("/usr/bin/codesign", "--verify", "--strict", bundle),
+            )) {
+                check(ProcessBuilder(command).inheritIO().start().waitFor() == 0) {
+                    "Failed to restore the public macOS bundle version: ${command.first()}"
+                }
             }
         }
     }
@@ -120,6 +150,8 @@ val smokeDesktopPackages = tasks.register<Exec>("smokeDesktopPackages") {
         layout.projectDirectory.file("verify_packages.py").asFile.absolutePath,
         layout.buildDirectory.dir("compose/binaries/main").get().asFile.absolutePath,
         desktopNativeVersion,
+        desktopPackageVersion,
+        macInstallerBuildVersion,
     )
 }
 if (providers.environmentVariable("CI").orNull == "true") {

@@ -9,6 +9,7 @@ import json
 import os
 from pathlib import Path
 import platform
+import plistlib
 import subprocess
 import sys
 import tempfile
@@ -77,7 +78,7 @@ def handshake(root, name):
     print(f"MCP stdio smoke passed: {launchers[0]}", flush=True)
 
 
-def verify(root, version):
+def verify(root, version, product_version, mac_build_version):
     """Extract or mount the generated packages without installing them system-wide."""
     system = platform.system()
     with tempfile.TemporaryDirectory(prefix="mcpserved-installer-") as temp:
@@ -105,6 +106,16 @@ def verify(root, version):
             mount.mkdir()
             run("hdiutil", "attach", str(dmg), "-readonly", "-nobrowse", "-mountpoint", str(mount))
             try:
+                bundle = mount / "MCPserved.app"
+                with (bundle / "Contents" / "Info.plist").open("rb") as stream:
+                    info = plistlib.load(stream)
+                expected_short = ".".join(product_version.split(".")[:3])
+                if info.get("CFBundleShortVersionString") != expected_short:
+                    raise RuntimeError(f"Incorrect visible macOS version: {info.get('CFBundleShortVersionString')!r}, expected {expected_short!r}")
+                if info.get("CFBundleVersion") != mac_build_version:
+                    raise RuntimeError(f"Incorrect macOS build identifier: {info.get('CFBundleVersion')!r}, expected {mac_build_version!r}")
+                run("codesign", "--verify", "--strict", str(bundle))
+                print(f"macOS bundle version verified: {expected_short} ({mac_build_version})", flush=True)
                 handshake(mount, "MCPserved")
             finally:
                 run("hdiutil", "detach", str(mount))
@@ -126,6 +137,6 @@ def verify(root, version):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 3:
-        raise SystemExit("Usage: verify_packages.py PACKAGE_ROOT VERSION")
-    verify(Path(sys.argv[1]).resolve(), sys.argv[2])
+    if len(sys.argv) != 5:
+        raise SystemExit("Usage: verify_packages.py PACKAGE_ROOT NATIVE_VERSION PRODUCT_VERSION MAC_BUILD_VERSION")
+    verify(Path(sys.argv[1]).resolve(), sys.argv[2], sys.argv[3], sys.argv[4])
