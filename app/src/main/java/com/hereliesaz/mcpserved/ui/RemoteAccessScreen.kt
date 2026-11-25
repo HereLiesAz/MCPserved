@@ -152,11 +152,11 @@ fun RemoteAccessScreen(vm: MainViewModel) {
         Text(
             "One tap: arms the service and opens a Cloudflare tunnel straight to " +
                 "this phone's MCP server. The address it hands back is a remote " +
-                "MCP endpoint — paste it and the token into a cloud assistant " +
-                "(claude.ai → Connectors, or Claude Code) and it's talking to this " +
-                "phone. No computer, no desktop app, nothing else to install. The " +
-                "tunnel dies when you stop it or close the app; for an address that " +
-                "stays put, deploy your own relay below.",
+                "MCP endpoint. In ChatGPT, add the URL with OAuth, then approve " +
+                "on the tunnel's consent page using the device token shown below. " +
+                "Other hosts can still use the Authorization header. No desktop app " +
+                "needed. Stopping the tunnel revokes its OAuth tokens. For a stable " +
+                "HTTP connector use Stable address below.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -213,6 +213,15 @@ fun RemoteAccessScreen(vm: MainViewModel) {
                 val endpoint = vm.publicMcpEndpoint(state.url)
                 Spacer(Modifier.height(12.dp))
                 ConnectorField("Connector URL", endpoint)
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "ChatGPT: select OAuth and automatic client registration (public client). " +
+                        "Paste only the device token on the consent page at this exact HTTPS origin.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.height(8.dp))
+                ConnectorField("Device token for OAuth consent", mcpBearer)
                 Spacer(Modifier.height(8.dp))
                 ConnectorField("Authorization header", "Bearer $mcpBearer")
                 Spacer(Modifier.height(8.dp))
@@ -323,6 +332,15 @@ fun RemoteAccessScreen(vm: MainViewModel) {
                 val endpoint = vm.publicMcpEndpoint(s.url)
                 Spacer(Modifier.height(12.dp))
                 ConnectorField("Connector URL", endpoint)
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "ChatGPT: select OAuth and automatic client registration (public client). " +
+                        "Paste only the device token on the consent page at this exact HTTPS origin.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.height(8.dp))
+                ConnectorField("Device token for OAuth consent", mcpBearer)
                 Spacer(Modifier.height(8.dp))
                 ConnectorField("Authorization header", "Bearer $mcpBearer")
                 Spacer(Modifier.height(8.dp))

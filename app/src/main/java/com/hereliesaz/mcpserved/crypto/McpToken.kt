@@ -57,9 +57,23 @@ class McpToken(ctx: Context) {
      */
     fun rotate(): String = synchronized(LOCK) { mint() }
 
+    /**
+     * Stable signing secret for public OAuth client registrations, separate from the
+     * device bearer. Rotation of the bearer revokes grants, not client registration.
+     * Like the bearer, this is kept in encrypted preferences and never exported.
+     */
+    internal fun oauthRegistrationKey(): String = synchronized(LOCK) {
+        prefs.getString(KEY_OAUTH_REGISTRATION, null) ?: randomSecret().also {
+            prefs.edit().putString(KEY_OAUTH_REGISTRATION, it).commit()
+        }
+    }
+
+    private fun randomSecret(): String =
+        Base64.encodeToString(ByteArray(32).also { SecureRandom().nextBytes(it) },
+            Base64.NO_WRAP or Base64.URL_SAFE or Base64.NO_PADDING)
+
     private fun mint(): String {
-        val raw = ByteArray(32).also { SecureRandom().nextBytes(it) }
-        val tok = Base64.encodeToString(raw, Base64.NO_WRAP or Base64.URL_SAFE or Base64.NO_PADDING)
+        val tok = randomSecret()
         prefs.edit().putString(KEY_TOKEN, tok).apply()
         return tok
     }
@@ -81,6 +95,7 @@ class McpToken(ctx: Context) {
 
     private companion object {
         const val KEY_TOKEN = "http_bearer"
+        const val KEY_OAUTH_REGISTRATION = "oauth_registration_key"
 
         /**
          * Process-wide lock. Class-level rather than per-instance because the

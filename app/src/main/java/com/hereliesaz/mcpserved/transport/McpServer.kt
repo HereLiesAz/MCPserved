@@ -34,8 +34,8 @@ import kotlinx.serialization.json.put
  * reachable directly on a private mesh (Tailscale, WireGuard) without a
  * tunnel. Either way loopback-or-not is not the authorization boundary — any
  * process that can reach the socket can dial it — so every request must carry
- * `Authorization: Bearer <token>`; one that cannot gets `401` and no other
- * signal. Widening the bind widens who can knock, never who can walk in
+ * `Authorization: Bearer <token>` (either the device credential or an OAuth
+ * access token issued for the active public origin); otherwise it gets `401`. Widening the bind widens who can knock, never who can walk in
  * without the token.
  */
 class McpServer(
@@ -44,6 +44,14 @@ class McpServer(
     port: Int = DEFAULT_HTTP_PORT,
     private val bindHost: String = LOOPBACK,
 ) : NanoHTTPD(bindHost, port) {
+
+    private val oauth = McpOAuth(token::value, token::oauthRegistrationKey)
+
+    /** Publish OAuth discovery only for an explicitly started HTTPS tunnel. */
+    fun enableOAuthOrigin(url: String) = oauth.enableOrigin(url)
+
+    /** Revoke this tunnel's pending consent, codes and issued OAuth tokens. */
+    fun disableOAuthOrigin(url: String) = oauth.disableOrigin(url)
 
     /** Starts listening. Returns false if the port could not be bound. */
     fun startServer(): Boolean = try {
@@ -56,28 +64,33 @@ class McpServer(
 
     /** Stops listening. Safe to call whether or not [startServer] succeeded. */
     fun stopServer() {
+        oauth.clear()
         runCatching { stop() }
     }
 
     override fun serve(session: IHTTPSession): Response {
-        // Only POST carries JSON-RPC. A GET would be a request to open a
-        // server-initiated stream, which this server does not offer.
-        if (session.method != Method.POST) {
-            return jsonResponse(
-                Response.Status.METHOD_NOT_ALLOWED,
-                rpcError(JsonNull, -32600, "only POST is supported"),
-            )
-        }
+        // OAuth endpoints cannot reach the dispatcher. Discovery and consent
+        // are only published at active, service-owned HTTPS tunnel origins.
+        oauth.serve(session)?.let { return it }
 
-        // Bearer auth. The token is the boundary; loopback is not.
+        // Both the original device bearer and scoped OAuth access tokens must
+        // pass this gate before a JSON-RPC message can reach the bridge.
         val header = session.headers["authorization"]
         val presented = header
             ?.takeIf { it.startsWith("Bearer ", ignoreCase = true) }
             ?.substring(BEARER_PREFIX_LEN)
             ?.trim()
-        if (!token.matches(presented)) {
+        if (!token.matches(presented) && !oauth.accepts(session, presented)) {
             return newFixedLengthResponse(Response.Status.UNAUTHORIZED, MIME_JSON, "").apply {
-                addHeader("WWW-Authenticate", "Bearer")
+                addHeader("WWW-Authenticate", oauth.challenge(session))
+            }
+        }
+
+        // Authenticated GET is not a stream: this server is stateless HTTP.
+        if (session.method != Method.POST) {
+            return jsonResponse(Response.Status.METHOD_NOT_ALLOWED,
+                rpcError(JsonNull, -32600, "only POST is supported")).apply {
+                addHeader("Allow", "POST")
             }
         }
 

@@ -273,3 +273,19 @@ something narrower. When per-app authority matters, use the paired app.
 Note also that the sealed-frame transport applies only to the **app** backend;
 the adb backend's security *is* adb's own (the USB-debugging authorization and the
 transport `adb` itself provides). See [backends](backends.md).
+
+### OAuth for public HTTP connectors
+
+For explicitly running HTTPS tunnels the device also supports ChatGPT's OAuth
+authorization-code flow. Discovery is public; tools are not. Consent requires
+the existing device bearer submitted in a POST to the exact configured origin.
+The issued opaque tokens are separate from the bearer and bound to the origin,
+registered public client and bearer generation. Exact ChatGPT callback allowlisting,
+S256 PKCE and single-use codes prevent redirect substitution and code replay.
+No OAuth endpoint invokes the dispatcher; accepted MCP requests still use its
+existing session and package grants. Rotating the device bearer, stopping the
+tunnel or stopping the service invalidates OAuth grants. Registration IDs are
+signed with a separate encrypted device secret so client registration survives
+a restart without storing an unbounded public registration database. Only
+public client authentication is supported. Cloudflare still terminates TLS;
+do not approve a consent page on an unexpected hostname.
