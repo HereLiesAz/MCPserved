@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { resolveWindowsClaudeCommand } from "./install.js";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { tryLoadConfig } from "./config.js";
@@ -94,4 +95,29 @@ test("auto ADB remains blocked after pairing or a pairing read failure", async (
   const unreadable = new AdbLink(() => { throw new Error("unreadable"); });
   assert.equal((await unreadable.send({ op: "session_end" })).ok, false);
   assert.equal((await new AdbLink().send({ op: "session_end" })).ok, true);
+});
+
+test("Windows Claude registration resolves native and npm executables without a shell", () => {
+  const dir = mkdtempSync(join(tmpdir(), "mcpserved-claude-"));
+  try {
+    const node = join(dir, "node.exe");
+    const native = join(dir, "claude.exe");
+    assert.equal(resolveWindowsClaudeCommand([dir], node), null);
+    writeFileSync(native, "");
+    assert.deepEqual(resolveWindowsClaudeCommand([dir], node), [native]);
+    rmSync(native);
+    writeFileSync(join(dir, "claude.cmd"), "not executed");
+    const root = join(dir, "node_modules", "@anthropic-ai", "claude-code");
+    mkdirSync(root, { recursive: true });
+    const manifest = join(root, "package.json");
+    const entry = join(root, "cli.js");
+    writeFileSync(entry, "// not executed");
+    writeFileSync(manifest, '{"bin":{"claude":"cli.js"}}');
+    assert.deepEqual(resolveWindowsClaudeCommand([dir], node), [node, entry]);
+    writeFileSync(manifest, '{"bin":{"claude":"../../outside.js"}}');
+    writeFileSync(join(dir, "node_modules", "outside.js"), "");
+    assert.equal(resolveWindowsClaudeCommand([dir], node), null);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
