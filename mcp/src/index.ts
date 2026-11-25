@@ -55,6 +55,9 @@ import { install, connect } from "./install.js";
  */
 async function chooseLink(): Promise<Link> {
   const mode = (process.env.MCPSERVED_MODE ?? "auto").toLowerCase();
+  if (!["auto", "adb", "app", "relay", "tunnel"].includes(mode)) {
+    throw new Error(`Unsupported MCPSERVED_MODE=${mode}; expected auto, adb, app or relay.`);
+  }
 
   // Relay is explicit and separate from auto's adb-forward probe: it is for a
   // host with no local network path to the device at all, so nothing about
@@ -111,8 +114,8 @@ async function chooseLink(): Promise<Link> {
   // back to either: if this process can't reach the device directly, it has
   // no local network path to it at all, the same premise `adb` would fail on.
   const explicitHost = process.env.MCPSERVED_HOST;
-  if (explicitHost && mode === "adb") {
-    throw new Error("MCPSERVED_HOST is set, but MCPSERVED_MODE=adb has no use for it.");
+  if (explicitHost && mode !== "app") {
+    throw new Error("MCPSERVED_HOST is only used with MCPSERVED_MODE=app.");
   }
 
   if (config) {
@@ -135,8 +138,8 @@ async function chooseLink(): Promise<Link> {
     );
   }
 
-  // An unpaired auto session is the advertised app-free quick-connect path.
-  return new AdbLink();
+  // Auto may use raw ADB only while no pairing exists, including after startup.
+  return new AdbLink(mode === "auto" ? () => tryLoadConfig() === null : undefined);
 }
 
 async function main(): Promise<void> {

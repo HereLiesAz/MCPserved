@@ -26,6 +26,10 @@ function int(v: unknown): number {
  * rather than dressed up as something narrower.
  */
 export class AdbLink implements Link {
+  private pairingBlocked = false;
+
+  /** Auto supplies a check before each request; explicit adb needs no pairing check. */
+  constructor(private readonly stillUnpaired?: () => boolean) {}
   /** Centres of the nodes from the last ui_tree, so taps can address by id. */
   private nodeCenters = new Map<string, { x: number; y: number }>();
   private nodeBounds = new Map<string, Bounds>();
@@ -35,6 +39,16 @@ export class AdbLink implements Link {
   }
 
   async send(request: any, _timeoutMs = 30_000): Promise<any> {
+    if (this.stillUnpaired && !this.pairingBlocked) {
+      try {
+        this.pairingBlocked = !this.stillUnpaired();
+      } catch {
+        this.pairingBlocked = true;
+      }
+    }
+    if (this.pairingBlocked) {
+      return { ok: false, error: "Pairing exists or is unreadable; restart MCPserved to use the paired app." };
+    }
     try {
       switch (request?.op) {
         case "capabilities":

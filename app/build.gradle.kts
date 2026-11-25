@@ -46,7 +46,7 @@ val buildVerbs = listOf(
 )
 val isBuilding = !startParameter.isDryRun && startParameter.taskNames.any { taskName ->
     val task = taskName.substringAfterLast(':').lowercase()
-    task == "build" || buildVerbs.any { task.startsWith(it) }
+    task != "verifycloudflaredbinaries" && (task == "build" || buildVerbs.any { task.startsWith(it) })
 }
 
 val verMajor = versionProps.getProperty("versionMajor", "0")

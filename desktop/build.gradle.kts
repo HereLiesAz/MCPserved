@@ -27,6 +27,7 @@ dependencies {
     implementation(libs.zxing.core)
     // mDNS / DNS-SD: browse for devices the phone advertises over the LAN.
     implementation(libs.jmdns)
+    testImplementation(libs.junit)
 }
 
 /**

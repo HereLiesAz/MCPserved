@@ -3,7 +3,10 @@ package com.hereliesaz.mcpserved.desktop.config
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.nio.file.Files
+import java.nio.file.LinkOption
+import java.nio.file.NoSuchFileException
 import java.nio.file.Path
+import java.nio.file.attribute.BasicFileAttributes
 import java.nio.file.attribute.PosixFilePermission
 
 /**
@@ -48,18 +51,29 @@ object ConfigStore {
         return if (n in 1..65535) n else DEFAULT_PORT
     }
 
-    /** Reads the stored pairing, or null when unpaired or unreadable. */
-    fun tryLoad(): Config? {
-        return try {
-            val stored = json.decodeFromString<StoredConfig>(Files.readString(configPath))
-            Config(
-                deviceId = stored.deviceId,
-                port = resolvePort(),
-                serverPrivateKey = com.hereliesaz.mcpserved.desktop.crypto.Crypto.unb64(stored.serverPrivateKey),
-                devicePublicKey = com.hereliesaz.mcpserved.desktop.crypto.Crypto.unb64(stored.devicePublicKey),
-            )
+    /** UI-only best-effort read; backend selection must use [tryLoadForBackend]. */
+    fun tryLoad(): Config? = runCatching { tryLoadForBackend() }.getOrNull()
+
+    /** Returns null only when absent; invalid or inaccessible pairing files fail closed. */
+    fun tryLoadForBackend(path: Path = configPath): Config? {
+        val message = "Pairing at $path is unreadable or invalid; repair the pairing before connecting."
+        try {
+            val attrs = Files.readAttributes(path, BasicFileAttributes::class.java, LinkOption.NOFOLLOW_LINKS)
+            check(attrs.isRegularFile)
+        } catch (_: NoSuchFileException) {
+            return null
         } catch (_: Exception) {
-            null
+            error(message)
+        }
+        return try {
+            val stored = json.decodeFromString<StoredConfig>(Files.readString(path))
+            val privateKey = com.hereliesaz.mcpserved.desktop.crypto.Crypto.unb64(stored.serverPrivateKey)
+            val publicKey = com.hereliesaz.mcpserved.desktop.crypto.Crypto.unb64(stored.devicePublicKey)
+            check(stored.deviceId.isNotBlank() && privateKey.size == 32 && publicKey.size == 32)
+            Config(stored.deviceId, resolvePort(), privateKey, publicKey)
+        } catch (_: Exception) {
+            // Parsing exceptions may include the private key; never expose them.
+            error(message)
         }
     }
 
