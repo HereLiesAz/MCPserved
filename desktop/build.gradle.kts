@@ -1,4 +1,5 @@
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
+import java.util.Properties
 
 plugins {
     alias(libs.plugins.kotlin.jvm)
@@ -31,12 +32,36 @@ dependencies {
 }
 
 /**
- * jpackage rejects a version whose first component is zero for the Windows and
- * macOS installers, so the installer version is decoupled from the Android
- * versionName (which lives at 0.x). It defaults to 1.0.0 and CI overrides it with
- * the release tag via `-PdesktopPackageVersion=x.y.z`.
+ * Public product version is MAJOR.MINOR.PATCH.BUILD, supplied by the central
+ * desktop workflow. Local packaging reads the checked-in version baseline.
+ * Native formats may restrict the number of components; never change the
+ * public major version to satisfy an installer format.
  */
-val desktopPackageVersion: String = (project.findProperty("desktopPackageVersion") as String?) ?: "1.0.0"
+val desktopVersionBaseline = Properties().apply {
+    rootProject.file("version.properties").inputStream().use(::load)
+}
+val desktopPackageVersion: String = (project.findProperty("desktopPackageVersion") as String?) ?:
+    listOf(
+        desktopVersionBaseline.getProperty("versionMajor"),
+        desktopVersionBaseline.getProperty("versionMinor"),
+        if (desktopVersionBaseline.getProperty("versionMinor") == desktopVersionBaseline.getProperty("versionMinorLast"))
+            desktopVersionBaseline.getProperty("versionPatch") else "0",
+        desktopVersionBaseline.getProperty("versionBuild"),
+    ).joinToString(".")
+val desktopVersionParts = desktopPackageVersion.split(".")
+require(desktopVersionParts.size in 3..4 && desktopVersionParts.all { it.matches(Regex("0|[1-9][0-9]*")) }) {
+    "desktopPackageVersion must be MAJOR.MINOR.PATCH[.BUILD]"
+}
+val desktopShortVersion = desktopVersionParts.take(3).joinToString(".")
+val desktopBuildNumber = desktopVersionParts.getOrNull(3)?.toInt()
+    ?: desktopVersionParts[2].toInt()
+val windowsInstallerVersion = "${desktopVersionParts[0]}.${desktopVersionParts[1]}.$desktopBuildNumber"
+val macInstallerBuildVersion = "${maxOf(1, desktopBuildNumber)}.0.0"
+val desktopNativeVersion = when {
+    System.getProperty("os.name").startsWith("Windows", ignoreCase = true) -> windowsInstallerVersion
+    System.getProperty("os.name").startsWith("Mac", ignoreCase = true) -> desktopShortVersion
+    else -> desktopPackageVersion
+}
 
 compose.desktop {
     application {
@@ -49,7 +74,7 @@ compose.desktop {
             // runs on.
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb, TargetFormat.Rpm)
             packageName = "MCPserved"
-            packageVersion = desktopPackageVersion
+            packageVersion = desktopShortVersion
             description = "Desktop MCP server for MCPserved — control an authorized Android device"
             vendor = "hereliesaz"
             copyright = "© hereliesaz"
@@ -61,10 +86,12 @@ compose.desktop {
             // and the desktop present the same mark. jpackage wants a different
             // container per OS: .png (Linux), .ico (Windows), .icns (macOS).
             linux {
+                packageVersion = desktopPackageVersion
                 menuGroup = "Development"
                 iconFile.set(project.file("icons/icon.png"))
             }
             windows {
+                packageVersion = windowsInstallerVersion
                 menuGroup = "MCPserved"
                 // A stable UUID keeps upgrades in place instead of installing
                 // side-by-side copies.
@@ -72,7 +99,10 @@ compose.desktop {
                 iconFile.set(project.file("icons/icon.ico"))
             }
             macOS {
+                packageVersion = desktopShortVersion
                 bundleID = "com.hereliesaz.mcpserved.desktop"
+                // CFBundleVersion is a positive build identifier, not the product major.
+                packageBuildVersion = macInstallerBuildVersion
                 iconFile.set(project.file("icons/icon.icns"))
             }
         }
@@ -89,7 +119,7 @@ val smokeDesktopPackages = tasks.register<Exec>("smokeDesktopPackages") {
         python,
         layout.projectDirectory.file("verify_packages.py").asFile.absolutePath,
         layout.buildDirectory.dir("compose/binaries/main").get().asFile.absolutePath,
-        desktopPackageVersion,
+        desktopNativeVersion,
     )
 }
 if (providers.environmentVariable("CI").orNull == "true") {
