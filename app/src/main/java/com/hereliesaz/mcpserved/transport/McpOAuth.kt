@@ -124,7 +124,7 @@ internal class McpOAuth(
             return error("invalid_request", Response.Status.METHOD_NOT_ALLOWED)
         // Cap unauthenticated bodies before NanoHTTPD allocates or spools them.
         val length = session.headers["content-length"]?.toLongOrNull()
-        if (length == null || length !in 1..MAX_BODY || session.headers.containsKey("transfer-encoding") ||
+        if (length == null || length !in 1L..MAX_BODY || session.headers.containsKey("transfer-encoding") ||
             !session.queryParameterString.isNullOrEmpty()) return error("invalid_request")
         val contentType = session.headers["content-type"]?.substringBefore(';')?.trim()?.lowercase()
         if (contentType != if (path == REGISTER) "application/json" else "application/x-www-form-urlencoded")
@@ -234,7 +234,8 @@ internal class McpOAuth(
     }
 
     private fun approve(origin: String, p: Map<String, String>?): Response {
-        val nonce = p?.get("request") ?: return error("invalid_request")
+        if (p == null) return error("invalid_request")
+        val nonce = p["request"] ?: return error("invalid_request")
         val consent = consents[nonce] ?: return error("invalid_request")
         if (consent.origin != origin) return error("invalid_request")
         consents.remove(nonce) // single use, including denial and failed login

@@ -19,7 +19,7 @@ import java.security.SecureRandom
  *
  * Loopback binding is not the authorization boundary — any process on the device
  * can reach `127.0.0.1`. The token is: a request that cannot present it gets 401
- * and learns nothing else about what is listening.
+ * (active public tunnels also advertise OAuth discovery).
  */
 class McpToken(ctx: Context) {
 
@@ -64,7 +64,7 @@ class McpToken(ctx: Context) {
      */
     internal fun oauthRegistrationKey(): String = synchronized(LOCK) {
         prefs.getString(KEY_OAUTH_REGISTRATION, null) ?: randomSecret().also {
-            prefs.edit().putString(KEY_OAUTH_REGISTRATION, it).commit()
+            check(prefs.edit().putString(KEY_OAUTH_REGISTRATION, it).commit()) { "Could not persist OAuth registration key" }
         }
     }
 
