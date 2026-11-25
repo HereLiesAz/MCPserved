@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { lstatSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -38,31 +38,35 @@ function resolvePort(): number {
   return Number.isInteger(n) && n > 0 && n < 65536 ? n : DEFAULT_PORT;
 }
 
-/** Reads the stored pairing, or throws with a pointer to `pair` if absent. */
-export function loadConfig(): Config {
-  let stored: StoredConfig;
-  try {
-    stored = JSON.parse(readFileSync(CONFIG_PATH, "utf8"));
-  } catch {
-    throw new Error(
-      `no pairing found at ${CONFIG_PATH} — run \`npx mcpserved pair\` first`,
-    );
-  }
-
-  return {
-    deviceId: stored.deviceId,
-    port: resolvePort(),
-    serverPrivateKey: Buffer.from(stored.serverPrivateKey, "base64"),
-    devicePublicKey: Buffer.from(stored.devicePublicKey, "base64"),
-  };
+/** Reads the stored pairing, or throws with a pointer to pair if absent. */
+export function loadConfig(path = CONFIG_PATH): Config {
+  const config = tryLoadConfig(path);
+  if (!config) throw new Error(`no pairing found at ${path} — run npx mcpserved pair first`);
+  return config;
 }
 
-/** Like {@link loadConfig} but returns null instead of throwing when unpaired. */
-export function tryLoadConfig(): Config | null {
+/** Returns null only for a missing pairing; invalid or inaccessible files fail closed. */
+export function tryLoadConfig(path = CONFIG_PATH): Config | null {
+  const invalid = () => new Error(`Pairing at ${path} is unreadable or invalid; repair the pairing before connecting.`);
   try {
-    return loadConfig();
+    if (!lstatSync(path).isFile()) throw invalid();
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw invalid();
+  }
+  try {
+    const stored = JSON.parse(readFileSync(path, "utf8")) as StoredConfig;
+    if (typeof stored.deviceId !== "string" || !stored.deviceId.trim()) throw invalid();
+    const decodeKey = (key: string): Buffer => {
+      if (typeof key !== "string") throw invalid();
+      const bytes = Buffer.from(key, "base64");
+      if (bytes.length !== 32 || bytes.toString("base64") !== key) throw invalid();
+      return bytes;
+    };
+    return { deviceId: stored.deviceId, port: resolvePort(), serverPrivateKey: decodeKey(stored.serverPrivateKey), devicePublicKey: decodeKey(stored.devicePublicKey) };
   } catch {
-    return null;
+    // Parsing exceptions may contain private key material.
+    throw invalid();
   }
 }
 

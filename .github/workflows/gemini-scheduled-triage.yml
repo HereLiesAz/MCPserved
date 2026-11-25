@@ -41,7 +41,7 @@ jobs:
     outputs:
       available_labels: '${{ steps.get_labels.outputs.available_labels }}'
       triaged_issues: '${{ env.TRIAGED_ISSUES }}'
-      candidate_issues: '${{ steps.find_issues.outputs.issues_to_triage }}'
+      candidate_issues: '${{ steps.find_issues.outputs.candidate_issue_numbers }}'
     steps:
       - name: 'Get repository labels'
         id: 'get_labels'
@@ -95,6 +95,7 @@ jobs:
 
           echo '📝 Setting output for GitHub Actions...'
           echo "issues_to_triage=${ISSUES}" >> "${GITHUB_OUTPUT}"
+          echo "candidate_issue_numbers=$(jq -c 'map(.number)' <<< "$ISSUES")" >> "${GITHUB_OUTPUT}"
 
           ISSUE_COUNT="$(echo "${ISSUES}" | jq 'length')"
           echo "✅ Found ${ISSUE_COUNT} issue(s) to triage! 🎯"
@@ -189,7 +190,7 @@ jobs:
 
             // Parse out the triaged issues
             const candidates = JSON.parse(process.env.CANDIDATE_ISSUES || '[]');
-            const allowedIssueNumbers = new Set(candidates.map((candidate) => candidate.number));
+            const allowedIssueNumbers = new Set(candidates);
             const triagedIssues = JSON.parse(process.env.TRIAGED_ISSUES || '[]');
             if (!Array.isArray(triagedIssues)) throw new Error('Invalid Gemini issue list');
             triagedIssues.sort((a, b) => a.issue_number - b.issue_number)

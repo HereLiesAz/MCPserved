@@ -23,7 +23,8 @@ import java.util.Base64
  * device, disclosed in the capability report and the session notice rather than
  * dressed up as something narrower.
  */
-class AdbLink : Link {
+class AdbLink(private val stillUnpaired: (() -> Boolean)? = null) : Link {
+    private var pairingBlocked = false
     override val label: String = "adb (device-wide shell authority)"
 
     /** Centres and bounds of the nodes from the last ui_tree, so taps address by id. */
@@ -34,7 +35,14 @@ class AdbLink : Link {
         // Nothing persistent to close; every call spawns adb afresh.
     }
 
+    @Synchronized
     override fun send(request: JsonObject, timeoutMs: Long): JsonObject {
+        if (!pairingBlocked && stillUnpaired != null) {
+            pairingBlocked = !runCatching { stillUnpaired.invoke() }.getOrDefault(false)
+        }
+        if (pairingBlocked) {
+            return err("Pairing exists or is unreadable; restart MCPserved to use the paired app.")
+        }
         return try {
             when (request.opOr()) {
                 "capabilities" -> capabilities()

@@ -32,7 +32,7 @@ import kotlinx.serialization.json.jsonObject
  * device straight over `adb`; when the on-device app is paired and reachable —
  * discovered on the LAN over mDNS, or bridged through `adb forward` — the server
  * upgrades to it for the richer accessibility surface. `MCPSERVED_MODE` pins the
- * choice to `adb` or `app`; the default, `auto`, prefers the app and falls back.
+ * choice to `adb` or `app`; `auto` permits raw adb only when no pairing exists.
  */
 object McpServer {
 
@@ -49,9 +49,9 @@ object McpServer {
      *
      * With a pairing on file (and mode not pinned to adb) it first tries to find
      * the device on the LAN over mDNS and dial it directly, then falls back to an
-     * `adb forward` tunnel onto its loopback port. A pinned `app` mode never
-     * silently becomes adb — adb is device-wide shell authority, and falling back
-     * to it would quietly widen what the operator asked to restrict.
+     * `adb forward` tunnel onto its loopback port. Neither paired `auto` nor `app`
+     * may silently become raw adb: its device-wide authority would widen what
+     * the operator asked to restrict. Unpaired auto checks for pairing each request.
      *
      * `MCPSERVED_MODE=relay` is explicit and separate from `auto`'s LAN/adb-forward
      * search: a relay is for a host with no local network path to the device at
@@ -86,7 +86,7 @@ object McpServer {
         }
 
         if (mode == "relay") {
-            val config = ConfigStore.tryLoad()
+            val config = ConfigStore.tryLoadForBackend()
                 ?: error("MCPSERVED_MODE=relay, but no pairing was found. Pair the device first.")
             val url = System.getenv("MCPSERVED_RELAY_URL")
                 ?: error("MCPSERVED_MODE=relay requires MCPSERVED_RELAY_URL.")
@@ -103,7 +103,7 @@ object McpServer {
             return relay
         }
 
-        val config = if (mode == "adb") null else ConfigStore.tryLoad()
+        val config = if (mode == "adb") null else ConfigStore.tryLoadForBackend()
 
         if (mode == "app" && config == null) {
             error("MCPSERVED_MODE=app, but no pairing was found. Pair the device first.")
@@ -123,16 +123,13 @@ object McpServer {
 
         if (config != null) {
             appLinkFor(config)?.let { return it }
-            if (mode == "app") {
-                error(
-                    "MCPSERVED_MODE=app, but the on-device app did not answer. Check that it is " +
-                        "installed, paired, and armed, and that the device is reachable over the LAN " +
-                        "or adb.",
-                )
-            }
+            error(
+                "Paired on-device app did not answer. Check that it is installed, paired, " +
+                    "armed, and reachable over the LAN or adb. No raw adb fallback is permitted.",
+            )
         }
 
-        return AdbLink()
+        return if (mode == "auto") AdbLink { ConfigStore.tryLoadForBackend() == null } else AdbLink()
     }
 
     /**

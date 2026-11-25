@@ -1,5 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { tryLoadConfig } from "./config.js";
 import { buildTools } from "./tools.js";
 import { AdbLink } from "./adb-link.js";
 import type { Link } from "./link.js";
@@ -56,4 +60,38 @@ test("ADB rejects shell metacharacters in numeric gesture arguments before invok
   assert.equal(hold.ok, false);
   assert.match(swipe.error, /invalid/);
   assert.match(hold.error, /invalid/);
+});
+
+test("pairing state distinguishes absent, malformed and valid files", () => {
+  const dir = mkdtempSync(join(tmpdir(), "mcpserved-pairing-"));
+  const path = join(dir, "pairing.json");
+  try {
+    assert.equal(tryLoadConfig(path), null);
+    writeFileSync(path, "{");
+    assert.throws(() => tryLoadConfig(path), /unreadable or invalid/);
+    writeFileSync(path, JSON.stringify({ deviceId: "test", serverPrivateKey: "AA==", devicePublicKey: "AA==" }));
+    assert.throws(() => tryLoadConfig(path), /unreadable or invalid/);
+    writeFileSync(path, JSON.stringify({ deviceId: "test", serverPrivateKey: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=", devicePublicKey: "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=" }));
+    const config = tryLoadConfig(path);
+    assert.ok(config);
+    assert.equal(config.deviceId, "test");
+    assert.deepEqual(config.serverPrivateKey, Buffer.alloc(32, 0));
+    assert.deepEqual(config.devicePublicKey, Buffer.alloc(32, 1));
+    assert.throws(() => tryLoadConfig(dir), /unreadable or invalid/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("auto ADB remains blocked after pairing or a pairing read failure", async () => {
+  let unpaired = true;
+  const link = new AdbLink(() => unpaired);
+  assert.equal((await link.send({ op: "session_end" })).ok, true);
+  unpaired = false;
+  assert.equal((await link.send({ op: "session_end" })).ok, false);
+  unpaired = true;
+  assert.equal((await link.send({ op: "session_end" })).ok, false);
+  const unreadable = new AdbLink(() => { throw new Error("unreadable"); });
+  assert.equal((await unreadable.send({ op: "session_end" })).ok, false);
+  assert.equal((await new AdbLink().send({ op: "session_end" })).ok, true);
 });

@@ -30,6 +30,7 @@ import com.hereliesaz.mcpserved.transport.Scope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.filterIsInstance
@@ -247,6 +248,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         cloudflareToken.namedTunnelHostname = host
     }
 
+    private var stableAddressJob: Job? = null
+
     /** Progress of provisioning the named tunnel (the one-time API setup). */
     private val _stableAddressState = MutableStateFlow<DeployState>(DeployState.Idle)
     val stableAddressState: StateFlow<DeployState> = _stableAddressState
@@ -268,7 +271,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
      * MCP connector a cloud host registers directly.
      */
     fun setUpStableAddress() {
-        viewModelScope.launch {
+        stableAddressJob?.cancel()
+        stableAddressJob = viewModelScope.launch {
             val host = cloudflareToken.namedTunnelHostname.trim()
             if (host.isBlank()) {
                 _stableAddressState.value = DeployState.Error(
@@ -300,7 +304,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 return@launch
             }
             _stableAddressState.value = DeployState.Deploying
-            when (val r = namedTunnelDeployer.provision(apiToken, host)) {
+            val r = namedTunnelDeployer.provision(apiToken, host)
+            ensureActive()
+            when (r) {
                 is com.hereliesaz.mcpserved.transport.CloudflareNamedTunnel.Result.Success -> {
                     cloudflareToken.namedTunnelRunToken = r.runToken
                     cloudflareToken.provisionedHostname = r.hostname
@@ -319,8 +325,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /** Stops the named tunnel. The stable address stops answering until started again. */
+    /** Cancels provisioning and stops the tunnel until explicitly started again. */
     fun stopStableAddress() {
+        stableAddressJob?.cancel()
+        stableAddressJob = null
+        _stableAddressState.value = DeployState.Idle
         com.hereliesaz.mcpserved.service.ControlService.requestStopNamedTunnel()
     }
 

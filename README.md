@@ -38,7 +38,9 @@ Two backends behind one interface. The default drives the device straight over
 enabled — no app to install. When the on-device app is installed, paired, and
 reachable, the server upgrades to it for the semantic accessibility tree,
 per-package grants, and the notification mirror. `MCPSERVED_MODE` pins the choice
-to `adb` or `app`; `auto` uses adb only before pairing and fails closed when a paired app is unavailable.
+to `adb` or `app`; `auto` uses adb only when no pairing exists, fails closed for
+invalid pairing files or an unavailable paired app, and refuses subsequent raw
+ADB requests if pairing appears during a session. Restart the server after pairing.
 
 By default the app does not connect out; opt-in relays and Cloudflare tunnels do. It binds a control server on the phone; `adb forward`
 bridges a desktop port onto its loopback, and — once armed — it also advertises
