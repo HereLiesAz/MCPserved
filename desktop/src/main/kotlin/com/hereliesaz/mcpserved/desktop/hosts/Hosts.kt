@@ -4,6 +4,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
+import java.io.File
 import java.nio.file.Files
 import java.nio.file.Path
 
@@ -149,6 +150,38 @@ object Hosts {
     }
 
     /**
+     * Windows npm .cmd shims require a shell. Find the native CLI or resolve the
+     * npm manifest's actual entry point instead, preserving arguments verbatim.
+     * Only absolute PATH entries and package-local bin targets are accepted.
+     */
+    internal fun resolveWindowsClaudeCommand(pathEntries: List<Path>): List<String>? {
+        val dirs = pathEntries.filter { it.isAbsolute }
+        val node = dirs.asSequence().map { it.resolve("node.exe") }.firstOrNull { Files.isRegularFile(it) }
+        for (dir in dirs) {
+            val native = dir.resolve("claude.exe")
+            if (Files.isRegularFile(native)) return listOf(native.toString())
+            if (!Files.isRegularFile(dir.resolve("claude.cmd"))) continue
+            val root = dir.resolve("node_modules/@anthropic-ai/claude-code").normalize()
+            val entry = runCatching {
+                val manifest = prettyJson.parseToJsonElement(Files.readString(root.resolve("package.json"))) as? JsonObject
+                    ?: return@runCatching null
+                val bin = manifest["bin"]
+                val value = (if (bin is JsonObject) bin["claude"] else bin) as? JsonPrimitive
+                    ?: return@runCatching null
+                if (!value.isString) return@runCatching null
+                val relative = Path.of(value.content)
+                if (relative.isAbsolute) return@runCatching null
+                root.resolve(relative).normalize().takeIf { it.startsWith(root) && Files.isRegularFile(it) }
+            }.getOrNull() ?: continue
+            when (entry.fileName.toString().substringAfterLast('.').lowercase()) {
+                "exe" -> return listOf(entry.toString())
+                "js", "cjs", "mjs" -> if (node != null) return listOf(node.toString(), entry.toString())
+            }
+        }
+        return null
+    }
+
+    /**
      * Claude Code has a first-class CLI for this; use it rather than guessing at
      * its project-scoped config file. Falls back to returning the command when the
      * `claude` binary is not on PATH.
@@ -160,7 +193,16 @@ object Hosts {
         cmd += launch.command
         cmd += launch.args
 
-        val binary = if (isWindows) "claude.cmd" else "claude"
+        val binary = if (isWindows) {
+            resolveWindowsClaudeCommand(
+                System.getenv("PATH").orEmpty().split(File.pathSeparatorChar).mapNotNull {
+                    runCatching { Path.of(it.trim('"')) }.getOrNull()
+                },
+            )
+        } else listOf("claude")
+        if (binary == null) {
+            return Outcome.External("Claude Code", "Claude executable or npm entry not found. Run it yourself: claude ${cmd.joinToString(" ")}", ok = false)
+        }
         return try {
             // `claude mcp add` refuses to replace an existing entry, so
             // re-running install (e.g. after the relay URL changes) would
@@ -168,12 +210,12 @@ object Hosts {
             // Removing first — ignoring failure when there was nothing to
             // remove — makes this call idempotent.
             runCatching {
-                val rm = ProcessBuilder(binary, "mcp", "remove", SERVER_NAME, "-s", "user")
+                val rm = ProcessBuilder(binary + listOf("mcp", "remove", SERVER_NAME, "-s", "user"))
                     .redirectErrorStream(true).start()
                 rm.inputStream.readBytes()
                 rm.waitFor()
             }
-            val p = ProcessBuilder(listOf(binary) + cmd).redirectErrorStream(true).start()
+            val p = ProcessBuilder(binary + cmd).redirectErrorStream(true).start()
             p.inputStream.readBytes()
             val code = p.waitFor()
             if (code == 0) Outcome.External("Claude Code", "added via `claude mcp add` (user scope)", ok = true)
@@ -198,6 +240,7 @@ object Hosts {
             if (parsed !is JsonObject) return WriteResult.BLOCKED
             root = parsed
             val bucket = root[key.json] as? JsonObject
+            if (root.containsKey(key.json) && bucket == null) return WriteResult.BLOCKED
             replacing = bucket?.containsKey(SERVER_NAME) == true
         }
 

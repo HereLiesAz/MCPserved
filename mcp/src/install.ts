@@ -1,6 +1,6 @@
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, existsSync, statSync } from "node:fs";
 import { homedir, platform } from "node:os";
-import { dirname, join } from "node:path";
+import { delimiter, dirname, extname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { execFileSync, spawn } from "node:child_process";
 import { createInterface } from "node:readline/promises";
@@ -227,6 +227,7 @@ function writeConfig(
   // typeof null and typeof [] are both "object"; guard against both. An array
   // here would accept the assignment but drop it on JSON.stringify.
   const current = root[key];
+  if (Object.hasOwn(root, key) && !isPlainObject(current)) return "blocked";
   const bucket = isPlainObject(current) ? current : {};
   const replacing = SERVER_NAME in bucket;
   bucket[SERVER_NAME] = entry;
@@ -236,6 +237,47 @@ function writeConfig(
   writeFileSync(path, JSON.stringify(root, null, 2) + "\n");
 
   return existed && replacing ? "updated" : "created";
+}
+
+/**
+ * Resolve a Windows Claude CLI without executing .cmd/.ps1 shims or a shell.
+ * The npm shim's package manifest declares the real executable/script. PATH
+ * entries must be absolute; the current directory is never searched implicitly.
+ */
+export function resolveWindowsClaudeCommand(dirs: string[], nodeExecutable: string): string[] | null {
+  const regular = (path: string) => {
+    try { return statSync(path).isFile(); } catch { return false; }
+  };
+  for (const raw of dirs) {
+    const dir = raw.replace(/^"|"$/g, "");
+    if (!isAbsolute(dir)) continue;
+    const native = join(dir, "claude.exe");
+    if (regular(native)) return [native];
+    if (!regular(join(dir, "claude.cmd"))) continue;
+    const root = join(dir, "node_modules", "@anthropic-ai", "claude-code");
+    try {
+      const manifest: unknown = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
+      if (!isPlainObject(manifest)) continue;
+      const bin = isPlainObject(manifest.bin) ? manifest.bin.claude : manifest.bin;
+      if (typeof bin !== "string" || isAbsolute(bin)) continue;
+      const entry = resolve(root, bin);
+      const rel = relative(root, entry);
+      if (!rel || rel === ".." || rel.startsWith(".." + (platform() === "win32" ? "\\" : "/")) || isAbsolute(rel) || !regular(entry)) continue;
+      const extension = extname(entry).toLowerCase();
+      if (extension === ".exe") return [entry];
+      if ([".js", ".mjs", ".cjs"].includes(extension)) return [nodeExecutable, entry];
+    } catch { /* invalid or absent npm package: try the next PATH entry */ }
+  }
+  return null;
+}
+
+/** Invoke the real CLI with an argument vector, never shell interpolation. */
+function runClaude(args: string[]): void {
+  const prefix = platform() === "win32"
+    ? resolveWindowsClaudeCommand((process.env.PATH ?? "").split(delimiter), process.execPath)
+    : ["claude"];
+  if (!prefix) throw Object.assign(new Error("Claude CLI not found"), { code: "ENOENT" });
+  execFileSync(prefix[0], [...prefix.slice(1), ...args], { stdio: "ignore", timeout: 30_000 });
 }
 
 /**
@@ -249,20 +291,17 @@ function installClaudeCode(launch: Launch): boolean {
   for (const [k, v] of Object.entries(launch.env)) cmd.push("-e", `${k}=${v}`);
   cmd.push("--", launch.command, ...launch.args);
 
-  // On Windows the global CLI is claude.cmd/.ps1; execFile resolves that name,
-  // whereas a bare "claude" fails with ENOENT. Elsewhere the binary is on PATH.
-  const binary = platform() === "win32" ? "claude.cmd" : "claude";
   // `claude mcp add` refuses to replace an existing entry, so re-running this
   // (e.g. after the relay URL changes) would otherwise fail with "already
   // exists" instead of just updating it. Removing first — ignoring the error
   // when there was nothing to remove — makes this call idempotent.
   try {
-    execFileSync(binary, ["mcp", "remove", SERVER_NAME, ...scope], { stdio: "ignore" });
+    runClaude(["mcp", "remove", SERVER_NAME, ...scope]);
   } catch {
     // Nothing registered yet; that's fine.
   }
   try {
-    execFileSync(binary, cmd, { stdio: "ignore" });
+    runClaude(cmd);
     console.log("  Claude Code       ✓ added via `claude mcp add` (user scope)");
     return true;
   } catch (err) {
@@ -519,16 +558,15 @@ function forwardPort(port: number, serial?: string): Promise<void> {
 /** Registers the mcp-remote shim with Claude Code via its CLI. */
 function connectClaudeCode(url: string, token: string): void {
   const cmd = ["mcp", "add", SERVER_NAME, "-s", "user", "--", "npx", ...shimArgs(url, token)];
-  const binary = platform() === "win32" ? "claude.cmd" : "claude";
   // Same idempotency fix as installClaudeCode: remove any prior entry first
   // so re-running `connect` (e.g. with a rotated token) doesn't just fail.
   try {
-    execFileSync(binary, ["mcp", "remove", SERVER_NAME, "-s", "user"], { stdio: "ignore" });
+    runClaude(["mcp", "remove", SERVER_NAME, "-s", "user"]);
   } catch {
     // Nothing registered yet; that's fine.
   }
   try {
-    execFileSync(binary, cmd, { stdio: "ignore" });
+    runClaude(cmd);
     console.log("  Claude Code       ✓ added via `claude mcp add` (mcp-remote shim)");
   } catch (err) {
     const notFound = (err as NodeJS.ErrnoException)?.code === "ENOENT";
