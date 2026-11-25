@@ -233,6 +233,19 @@ class McpOAuthTest {
         assertEquals(200, redeem(client, code(client)).status)
     }
 
+    @Test
+    fun refreshCannotExtendConsentPastTwentyFourHours() {
+        val client = client()
+        val issued = redeem(client, code(client))
+        now += 86_399_000L
+        val last = renew(client, issued.value("refresh_token"))
+        assertEquals(200, last.status)
+        assertEquals("1", last.value("expires_in"))
+        now += 1000
+        assertEquals(401, request("/mcp", bearer = last.value("access_token")).status)
+        assertEquals(400, renew(client, last.value("refresh_token")).status)
+    }
+
     private companion object {
         const val ORIGIN = "https://phone.example"
         const val OTHER = "https://other.example"

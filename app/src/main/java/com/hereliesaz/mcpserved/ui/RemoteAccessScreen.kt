@@ -162,7 +162,7 @@ fun RemoteAccessScreen(vm: MainViewModel) {
         )
         Spacer(Modifier.height(8.dp))
         // One tap, not three: this arms the service, opens the tunnel, and the
-        // moment a URL exists pops the share sheet with the connector details
+        // moment a URL exists pops the share sheet with non-secret connector details
         // filled in. awaitingShare is scoped to *this* press, so reopening the
         // screen on an already-running tunnel never re-pops the sheet.
         var awaitingShare by remember { mutableStateOf(false) }
@@ -175,7 +175,7 @@ fun RemoteAccessScreen(vm: MainViewModel) {
                     type = "text/plain"
                     putExtra(Intent.EXTRA_TEXT, vm.tunnelConnectString(state.url))
                 }
-                context.startActivity(Intent.createChooser(intent, "Send to your AI assistant"))
+                context.startActivity(Intent.createChooser(intent, "Share connector URL and instructions"))
             } else if (state is ControlService.Companion.TunnelState.Error) {
                 awaitingShare = false
             }

@@ -22,8 +22,9 @@ depend on Cloudflare at all.
 Tap **Set up remote access** on the "This phone" tab. The app starts an
 anonymous Cloudflare Quick Tunnel that forwards HTTPS requests to the phone's
 bearer-authenticated `McpServer` on port 8791. The share sheet supplies the
-public `https://…trycloudflare.com/mcp` URL and its Authorization bearer
-header. Register **that HTTP MCP endpoint directly** with your host; it needs
+public `https://…trycloudflare.com/mcp` URL without credentials. The device
+bearer remains in the app for OAuth consent or explicit header configuration.
+Register **that HTTP MCP endpoint directly** with your host; it needs
 neither desktop `mcpserved` nor X25519 pairing.
 
 ### ChatGPT (OAuth)
