@@ -128,8 +128,12 @@ internal class McpOAuth(
             return error("invalid_request", Response.Status.METHOD_NOT_ALLOWED)
         // Cap unauthenticated bodies before NanoHTTPD allocates or spools them.
         val length = session.headers["content-length"]?.toLongOrNull()
+        // NanoHTTPD 2.3.1 reuses HTTPSession across keep-alive requests. Its
+        // queryParameterString survives requests with no query (and is also
+        // overwritten by form parsing). Only parameters is reset per request.
+        // Before parsing the body, this fresh map contains URL parameters only.
         if (length == null || length !in 1L..MAX_BODY || session.headers.containsKey("transfer-encoding") ||
-            !session.queryParameterString.isNullOrEmpty()) return error("invalid_request")
+            session.parameters.isNotEmpty()) return error("invalid_request")
         val contentType = session.headers["content-type"]?.substringBefore(';')?.trim()?.lowercase()
         if (contentType != if (path == REGISTER) "application/json" else "application/x-www-form-urlencoded")
             return error("invalid_request")
@@ -335,8 +339,13 @@ internal class McpOAuth(
             addHeader("Location", "$CALLBACK?$query")
         }
 
+    // Some rejections happen before the request body is read. NanoHTTPD does
+    // not drain it automatically: closing the connection prevents those bytes
+    // from being interpreted as a subsequent request on the same socket.
     private fun error(code: String, status: Response.Status = Response.Status.BAD_REQUEST) =
-        jsonResponse(buildJsonObject { put("error", code) }, status)
+        jsonResponse(buildJsonObject { put("error", code) }, status).apply {
+            addHeader("Connection", "close")
+        }
 
     private fun jsonResponse(body: JsonObject, status: Response.Status = Response.Status.OK) =
         response(status, "application/json", body.toString())

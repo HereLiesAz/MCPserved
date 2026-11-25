@@ -97,7 +97,7 @@ class McpOAuthTest {
     }
 
     private fun nonce(reply: Reply): String {
-        assertEquals(200, reply.status)
+        assertEquals("Authorization response: ${reply.body}", 200, reply.status)
         assertEquals("no-store", reply.cache)
         assertFalse(reply.body.contains(credential))
         return Regex("name=\"request\" value=\"([^\"]+)\"").find(reply.body)!!.groupValues[1]
@@ -110,7 +110,7 @@ class McpOAuthTest {
 
     private fun code(client: String): String {
         val approved = approve(nonce(begin(client)))
-        assertEquals(303, approved.status)
+        assertEquals("Consent response: ${approved.body}", 303, approved.status)
         assertTrue(approved.location!!.startsWith("$CALLBACK?"))
         assertEquals(ORIGIN, approved.redirect("iss"))
         assertEquals("state/with+symbols", approved.redirect("state"))
@@ -231,6 +231,23 @@ class McpOAuthTest {
         oauth.enableOrigin(ORIGIN)
         assertEquals(401, request("/mcp", bearer = old.value("access_token")).status)
         assertEquals(200, redeem(client, code(client)).status)
+    }
+
+    @Test
+    fun postAfterAuthorizationGetOnSameConnectionUsesOnlyCurrentRequestParameters() {
+        val client = client()
+        val pending = nonce(begin(client))
+        val approved = approve(pending)
+        assertEquals("Consent POST after query-bearing GET", 303, approved.status)
+        assertEquals(200, redeem(client, approved.redirect("code")!!).status)
+        // URL parameters must not be merged with security-critical form fields.
+        val next = nonce(begin(client))
+        val rejected = request("/oauth/authorize?decision=deny", body = form(
+            "request" to next, "decision" to "approve", "device_token" to credential
+        ), browserOrigin = ORIGIN)
+        assertEquals(400, rejected.status)
+        assertEquals("invalid_request", rejected.value("error"))
+        assertEquals(303, approve(next).status)
     }
 
     @Test
