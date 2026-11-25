@@ -1,0 +1,34 @@
+# centralized-by: HereLiesAz/workflows
+# central-source-path: .github/workflows/desktop.yml
+# central-source-sha256: f085283d13372c3d20dfeb8e47b3fe2541f7c912f15c30547257aa22c11be7c2
+# This file intentionally contains no repository secrets.
+# central-run-tracker: HereLiesAz/workflows
+name: Build Desktop Executables
+on:
+  push:
+    branches: ["**"]
+    tags: ["desktop-v*"]
+  pull_request:
+    branches: ["main"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Installer version (must start with a non-zero major, e.g. 1.0.0)"
+        required: false
+        default: ""
+
+# Cancel superseded runs on the same ref, matching the APK workflow so feature
+# branches don't pile up three-OS matrix builds.
+permissions: {}
+jobs:
+  central:
+    name: Hand-off
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Point to central result
+        env:
+          STATUS_CONTEXT: .github/workflows/desktop.yml
+          TARGET_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        shell: bash
+        run: "set -euo pipefail\n# The build runs in HereLiesAz/workflows. Its result is reported on this commit as the\n# commit status named below: pending when the central run starts, then success or\n# failure. This job only points there and ends, so it never holds a runner while the\n# central run waits for one. (Trackers that followed the central run job-by-job held a\n# runner each for the whole build; under the account's concurrent-job limit they\n# starved the very runs they were waiting on: 2026-10-01, illumera waited 3h to start.)\n# No status at all means the gateway intentionally skipped this event.\n{\n  echo \"### Runs in HereLiesAz/workflows\"\n  echo\n  echo \"Result: commit status \\`$STATUS_CONTEXT\\` on \\`$TARGET_SHA\\`.\"\n  echo \"Central runs: $GITHUB_SERVER_URL/HereLiesAz/workflows/actions\"\n} >> \"$GITHUB_STEP_SUMMARY\"\necho \"Result is reported as commit status '$STATUS_CONTEXT' on $TARGET_SHA.\"\n"
