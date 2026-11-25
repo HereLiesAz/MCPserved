@@ -133,7 +133,7 @@ rewrite it and prints the snippet to paste instead.
 | **Cline** (VS Code) | `npx mcpserved install cline`. |
 
 When the app is paired, the bridge uses it automatically (`MCPSERVED_MODE=auto`)
-and fails closed if it is unreachable. Without a pairing, `auto` uses adb.
+and fails closed if it is unreachable. Without a pairing, `auto` uses adb; invalid or unreadable pairing files fail closed. Restart the MCP server after pairing, because an existing unpaired `auto` session stops accepting raw adb requests when pairing appears.
 To select unrestricted adb despite an existing pairing, explicitly set
 `MCPSERVED_MODE=adb`. See
 [desktop-server](desktop-server.md).

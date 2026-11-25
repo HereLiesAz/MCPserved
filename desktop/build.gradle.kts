@@ -78,3 +78,22 @@ compose.desktop {
         }
     }
 }
+
+// Exercise the actual installer payload on CI's native OS, not only JVM classes.
+// Keep local packaging independent of Python; developers can opt in after packaging.
+val smokeDesktopPackages = tasks.register<Exec>("smokeDesktopPackages") {
+    group = "verification"
+    description = "Extract native installers and verify the packaged MCP stdio handshake."
+    val python = if (System.getProperty("os.name").startsWith("Windows", ignoreCase = true)) "python" else "python3"
+    commandLine(
+        python,
+        layout.projectDirectory.file("verify_packages.py").asFile.absolutePath,
+        layout.buildDirectory.dir("compose/binaries/main").get().asFile.absolutePath,
+        desktopPackageVersion,
+    )
+}
+if (providers.environmentVariable("CI").orNull == "true") {
+    tasks.matching { it.name == "packageDistributionForCurrentOS" }.configureEach {
+        finalizedBy(smokeDesktopPackages)
+    }
+}

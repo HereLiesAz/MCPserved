@@ -106,13 +106,15 @@ genuine transport failure the host should surface.
 ```
 mode = MCPSERVED_MODE (default "auto")
 config = (mode == "adb") ? none : load ~/.config/mcpserved/pairing.json
+if config exists but cannot be read or validated: error (except explicit adb)
 
 if mode == "app" and no config:      error "run `npx mcpserved pair` first"
 if config exists:
     probe the app (capabilities, 5s timeout)
     if it answers ok:                use AppLink (already connected)
     else:                            error (never expand to adb)
-else if mode == "auto" or "adb":      use AdbLink
+else if mode == "auto":              use AdbLink with pairing-state check on each request
+else if mode == "adb":               use AdbLink
 ```
 
 | `MCPSERVED_MODE` | No pairing | Pairing, app answers | Pairing, app silent |
@@ -123,8 +125,10 @@ else if mode == "auto" or "adb":      use AdbLink
 
 Once a pairing exists, `auto` never silently becomes adb: adb has device-wide
 shell authority and would bypass the app's grants, audit log, and disarm switch.
-Unrestricted control requires an explicit `MCPSERVED_MODE=adb`.
-See [security](security.md).
+Unrestricted control despite an existing pairing requires explicit
+`MCPSERVED_MODE=adb`. An unpaired `auto` session also stops accepting raw adb
+requests as soon as it observes a new or unreadable pairing file. Restart after
+pairing to select the paired backend. See [security](security.md).
 
 ## Pairing flow
 

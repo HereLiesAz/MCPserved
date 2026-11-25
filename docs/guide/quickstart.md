@@ -50,7 +50,7 @@ npm i -g mcpserved
 mcpserved
 ```
 
-With no pairing on file, `auto` falls back to the adb backend automatically.
+With no pairing on file, `auto` uses the adb backend automatically. A malformed or unreadable pairing file is an error, not permission to use raw adb.
 
 If more than one device is attached, select one:
 
@@ -130,10 +130,10 @@ With a pairing on file and the device reachable, the server uses the app
 automatically; it sets up the `adb forward` tunnel itself on connect. Just run:
 
 ```bash
-node dist/index.js          # auto: prefers the app, falls back to adb
+node dist/index.js          # auto: paired app or error; raw adb only when unpaired
 ```
 
-To require the app and never fall back:
+Restart an already-running MCP server after completing pairing. To require pairing even when no file exists:
 
 ```bash
 MCPSERVED_MODE=app node dist/index.js
